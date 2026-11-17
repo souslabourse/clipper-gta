@@ -21,11 +21,22 @@ def download(clip, rules, dest: Path):
         try:
             _ytdlp(f"https://www.twitch.tv/videos/{clip['video_id']}", dest,
                    ["--download-sections", f"*{start}-{end}", "--force-keyframes-at-cuts"])
-            return dest
+            if _playable(dest):
+                return dest
         except subprocess.CalledProcessError:
-            pass  # VOD supprimée ou réservée aux abonnés : on retombe sur le clip
+            pass
+        # VOD supprimée, réservée aux abonnés ou extrait sans son : on retombe sur le clip
     _ytdlp(clip["url"], dest, [])
+    if not _playable(dest):
+        raise RuntimeError("vidéo téléchargée illisible ou sans son")
     return dest
+
+
+def _playable(path):
+    """Vrai si le fichier a une piste audio décodable (sinon transcription et rendu échouent)."""
+    return Path(path).exists() and subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0", "-t", "2", "-f", "null", "-"],
+        capture_output=True, timeout=120).returncode == 0
 
 
 def _ytdlp(url, dest, extra):
@@ -46,9 +57,11 @@ def transcribe(path, lang, model_name):
     if _model is None:
         _model = WhisperModel(model_name, device="cpu", compute_type="int8")
     # ffmpeg plutôt que faster_whisper.decode_audio : ce dernier casse avec PyAV >= 16
-    pcm = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(path), "-ac", "1", "-ar", "16000",
-                          "-f", "f32le", "-"], capture_output=True, check=True, timeout=600).stdout
-    audio = np.frombuffer(pcm, dtype=np.float32)
+    res = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(path), "-ac", "1", "-ar", "16000",
+                          "-f", "f32le", "-"], capture_output=True, timeout=600)
+    if res.returncode:
+        raise RuntimeError(f"ffmpeg (audio) : {res.stderr.decode(errors='replace')[-300:]}")
+    audio = np.frombuffer(res.stdout, dtype=np.float32)
     segments, _ = _model.transcribe(audio, language=lang, word_timestamps=True, vad_filter=True)
     words = [(w.start, w.end, w.word.strip()) for s in segments for w in (s.words or []) if w.word.strip()]
     return words, audio
