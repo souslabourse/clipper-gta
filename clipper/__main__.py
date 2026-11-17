@@ -126,8 +126,8 @@ def publish(cfg, con):
     now = datetime.now(ZoneInfo(cfg["timezone"]))
     for lang, slots in pub["slots"].items():
         slot = due_slot(now, slots, pub["window_minutes"])
-        if not slot:
-            continue
+        if not slot or not os.environ.get(f"BUFFER_KEY_{lang.upper()}"):
+            continue  # pas de créneau, ou langue pas encore branchée sur Buffer
         key, day = f"{lang}:{now:%Y-%m-%d}:{slot}", f"{lang}:{now:%Y-%m-%d}:%"
         if con.execute("SELECT 1 FROM posts WHERE slot=?", (key,)).fetchone():
             continue
@@ -244,7 +244,9 @@ def main():
     cfg = load_config()
     if cmd == "channels":
         for lang in ("fr", "en"):
-            for c in buffer.channels(env(f"BUFFER_KEY_{lang.upper()}")):
+            if not os.environ.get(f"BUFFER_KEY_{lang.upper()}"):
+                continue
+            for c in buffer.channels(os.environ[f"BUFFER_KEY_{lang.upper()}"]):
                 print(lang, c["service"], c["id"], c["name"])
         return
     fn = {"tick": tick, "run": run, "publish": publish, "recap": recap}.get(cmd)
