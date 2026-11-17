@@ -1,4 +1,4 @@
-# Passage horaire : commandes Telegram, publication, récupération + montage, récap.
+# Passage horaire (GitHub Actions) : commandes Telegram, publication, récupération + montage, récap.
 # L'état (base SQLite + vidéos) vit sur la branche "data" ; les vidéos sont servies par GitHub Pages
 # (Buffer exige une URL HTTPS publique).
 name: clipper
