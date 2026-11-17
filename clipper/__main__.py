@@ -114,8 +114,8 @@ def due_slot(now, slots, window_min):
 
 
 def channels_for(lang):
-    """BUFFER_CHANNELS_FR="tiktok:abc,youtube:def" -> [('tiktok','abc'), ('youtube','def')]"""
-    raw = os.environ.get(f"BUFFER_CHANNELS_{lang.upper()}", "")
+    """CLIPPER_BUFFER_CHANNELS_FR="tiktok:abc,youtube:def" -> [('tiktok','abc'), ('youtube','def')]"""
+    raw = os.environ.get(f"CLIPPER_BUFFER_CHANNELS_{lang.upper()}", "")
     return [tuple(x.split(":", 1)) for x in raw.split(",") if ":" in x]
 
 
@@ -126,7 +126,7 @@ def publish(cfg, con):
     now = datetime.now(ZoneInfo(cfg["timezone"]))
     for lang, slots in pub["slots"].items():
         slot = due_slot(now, slots, pub["window_minutes"])
-        if not slot or not os.environ.get(f"BUFFER_KEY_{lang.upper()}"):
+        if not slot or not os.environ.get(f"CLIPPER_BUFFER_KEY_{lang.upper()}"):
             continue  # pas de créneau, ou langue pas encore branchée sur Buffer
         key, day = f"{lang}:{now:%Y-%m-%d}:{slot}", f"{lang}:{now:%Y-%m-%d}:%"
         if con.execute("SELECT 1 FROM posts WHERE slot=?", (key,)).fetchone():
@@ -141,7 +141,7 @@ def publish(cfg, con):
             continue
         meta = json.loads(row["meta"])
         url = f"{env('PUBLIC_BASE_URL').rstrip('/')}/{row['path']}"
-        key_env = env(f"BUFFER_KEY_{lang.upper()}")
+        key_env = env(f"CLIPPER_BUFFER_KEY_{lang.upper()}")
         done = []
         for service, channel in channels_for(lang):
             try:
@@ -244,9 +244,9 @@ def main():
     cfg = load_config()
     if cmd == "channels":
         for lang in ("fr", "en"):
-            if not os.environ.get(f"BUFFER_KEY_{lang.upper()}"):
+            if not os.environ.get(f"CLIPPER_BUFFER_KEY_{lang.upper()}"):
                 continue
-            for c in buffer.channels(os.environ[f"BUFFER_KEY_{lang.upper()}"]):
+            for c in buffer.channels(os.environ[f"CLIPPER_BUFFER_KEY_{lang.upper()}"]):
                 print(lang, c["service"], c["id"], c["name"])
         return
     fn = {"tick": tick, "run": run, "publish": publish, "recap": recap}.get(cmd)

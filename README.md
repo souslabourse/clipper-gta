@@ -24,8 +24,8 @@ démarrage sur la première parole, facecam en haut (détection auto), jeu en ba
 | Nom | Valeur |
 |---|---|
 | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | dev.twitch.tv/console |
-| `BUFFER_KEY_FR`, `BUFFER_KEY_EN` | publish.buffer.com/settings/api (un compte Buffer gratuit par langue) |
-| `BUFFER_CHANNELS_FR`, `BUFFER_CHANNELS_EN` | `tiktok:<id>,youtube:<id>` (ids donnés par `python -m clipper channels`) |
+| `CLIPPER_BUFFER_KEY_FR`, `CLIPPER_BUFFER_KEY_EN` | publish.buffer.com/settings/api (un compte Buffer gratuit par langue) |
+| `CLIPPER_BUFFER_CHANNELS_FR`, `CLIPPER_BUFFER_CHANNELS_EN` | `tiktok:<id>,youtube:<id>` (ids donnés par `python -m clipper channels`) |
 | `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` | @BotFather, puis `https://api.telegram.org/bot<TOKEN>/getUpdates` |
 
 ## Réglages

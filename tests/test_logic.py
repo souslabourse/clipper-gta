@@ -67,7 +67,7 @@ def test_ass_mot_actif_et_echappement():
 
 
 def test_channels_env(monkeypatch):
-    monkeypatch.setenv("BUFFER_CHANNELS_FR", "tiktok:abc,youtube:def")
+    monkeypatch.setenv("CLIPPER_BUFFER_CHANNELS_FR", "tiktok:abc,youtube:def")
     assert channels_for("fr") == [("tiktok", "abc"), ("youtube", "def")]
 
 
