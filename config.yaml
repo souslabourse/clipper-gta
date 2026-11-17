@@ -1,0 +1,69 @@
+# Configuration de la chaîne de clipping GTA.
+# Les clés API ne vont JAMAIS ici : elles sont dans /etc/clipper.env sur le serveur.
+
+timezone: Europe/Paris
+
+# Catégories Twitch acceptées (noms exacts Twitch).
+games: ["Grand Theft Auto VI", "Grand Theft Auto V"]
+
+fetch:
+  lookback_hours: 48        # clips créés dans les 48 dernières heures
+  clips_per_streamer: 10    # les N clips les plus vus par streamer
+  min_views: 300            # en dessous, on ignore
+  process_per_run: 6        # clips montés par passage (CPU limité)
+
+# Règles issues de l'analyse du 17/11/2026 (240 TikTok + 120 Shorts GTA).
+# Mises à jour automatiquement par l'analyse hebdomadaire.
+rules:
+  min_seconds: 20           # jamais plus court
+  max_seconds: 90
+  context_before: 8         # secondes de VOD ajoutées avant le clip (contexte)
+  context_after: 4
+  max_silence: 0.8          # temps mort coupé au-delà (s)
+  hook_seconds: 2.5         # texte d'accroche affiché au début
+  program_boost: 2.0        # priorité des streamers avec programme de clipping
+
+publish:
+  max_per_day: 3            # par langue, par plateforme (anti-spam)
+  window_minutes: 20        # tolérance autour d'un créneau
+  max_clip_age_hours: 48
+  slots:                    # heure de Paris
+    fr: ["12:30", "18:00", "21:30"]
+    en: ["16:00", "21:00", "00:30"]
+  youtube_category: "20"    # Gaming
+
+style:
+  font: DejaVu Sans
+  font_size: 88
+  words_per_group: 3
+
+models:
+  whisper: small            # faster-whisper, CPU int8
+  ollama: qwen2.5:3b
+
+# Liste autorisée. program = lien du programme de clipping (null si aucun).
+# facecam: auto (détection), none, ou [x, y, largeur, hauteur] en fractions de l'image.
+streamers:
+  # --- EN, avec programme ---
+  - {login: kaicenat, lang: en, program: "https://www.clyper.io/clipping-programs/kai-cenat"}
+  - {login: lacy, lang: en, program: "https://www.clyper.io/clipping-programs/lacy"}
+  - {login: marlon, lang: en, program: "https://www.clyper.io/clipping-programs/marlon"}
+  - {login: jasontheween, lang: en, program: "https://www.clyper.io/clipping-programs/jasontheween"}
+  - {login: clix, lang: en, program: "https://www.clyper.io/clipping-programs/clix"}
+  - {login: silky, lang: en, program: "https://www.clyper.io/clipping-programs/silky"}
+  # --- EN, sans programme ---
+  - {login: xqc, lang: en, program: null}
+  - {login: buddha, lang: en, program: null}
+  - {login: summit1g, lang: en, program: null}
+  - {login: lord_kebun, lang: en, program: null}
+  - {login: penta, lang: en, program: null}
+  - {login: ludwig, lang: en, program: null}
+  - {login: jynxzi, lang: en, program: null}
+  # N3on est sur Kick : pas couvert par l'API Twitch (v2).
+  # --- FR, sans programme connu ---
+  - {login: jltomy, lang: fr, program: null}
+  - {login: domingo, lang: fr, program: null}
+  - {login: squeezie, lang: fr, program: null}
+  - {login: michou, lang: fr, program: null}
+  - {login: aminematue, lang: fr, program: null}
+  - {login: flamby, lang: fr, program: null}

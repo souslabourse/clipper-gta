@@ -1,0 +1,16 @@
+[Unit]
+Description=Clipper bot Telegram
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=clipper
+WorkingDirectory=/opt/clipper
+EnvironmentFile=/etc/clipper.env
+Environment=HOME=/opt/clipper
+ExecStart=/opt/clipper/.venv/bin/python -m clipper bot
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

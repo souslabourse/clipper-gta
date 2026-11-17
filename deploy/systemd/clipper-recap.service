@@ -1,0 +1,15 @@
+[Unit]
+Description=Clipper recap
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=clipper
+WorkingDirectory=/opt/clipper
+EnvironmentFile=/etc/clipper.env
+Environment=HOME=/opt/clipper
+ExecStart=/opt/clipper/.venv/bin/python -m clipper recap
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=5min
