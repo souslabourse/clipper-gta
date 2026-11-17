@@ -71,6 +71,23 @@ def test_channels_env(monkeypatch):
     assert channels_for("fr") == [("tiktok", "abc"), ("youtube", "def")]
 
 
+def test_cleanup_supprime_publies_anciens_et_expire(tmp_path, monkeypatch):
+    from clipper.__main__ import cleanup
+    monkeypatch.setattr("clipper.core.DATA", tmp_path)
+    monkeypatch.setattr("clipper.__main__.DATA", tmp_path)
+    con = db()
+    (tmp_path / "out").mkdir()
+    for name in ("old.mp4", "fresh.mp4", "stale.mp4"):
+        (tmp_path / "out" / name).write_bytes(b"x")
+    con.executemany("INSERT INTO clips (id, status, path, posted_at, created_at) VALUES (?,?,?,?,?)", [
+        ("a", "posted", "old.mp4", "2020-01-01T10:00:00+01:00", "2020-01-01T00:00:00Z"),
+        ("b", "ready", "fresh.mp4", None, "2999-01-01T00:00:00Z"),
+        ("c", "ready", "stale.mp4", None, "2020-01-01T00:00:00Z")])
+    cleanup({"publish": {"max_clip_age_hours": 48}}, con)
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["fresh.mp4"]
+    assert con.execute("SELECT status FROM clips WHERE id='c'").fetchone()[0] == "expired"
+
+
 def test_bot_pause_et_retrait(tmp_path, monkeypatch):
     monkeypatch.setattr("clipper.core.DATA", tmp_path)
     con = db()

@@ -10,7 +10,8 @@ fetch:
   lookback_hours: 48        # clips créés dans les 48 dernières heures
   clips_per_streamer: 10    # les N clips les plus vus par streamer
   min_views: 300            # en dessous, on ignore
-  process_per_run: 6        # clips montés par passage (CPU limité)
+  process_per_run: 6        # clips montés par passage
+  max_ready_per_lang: 4     # stock max de clips prêts par langue (hébergement < 1 Go)
 
 # Règles issues de l'analyse du 17/11/2026 (240 TikTok + 120 Shorts GTA).
 # Mises à jour automatiquement par l'analyse hebdomadaire.
@@ -25,7 +26,7 @@ rules:
 
 publish:
   max_per_day: 3            # par langue, par plateforme (anti-spam)
-  window_minutes: 20        # tolérance autour d'un créneau
+  window_minutes: 90        # GitHub lance le passage horaire avec du retard : large tolérance
   max_clip_age_hours: 48
   slots:                    # heure de Paris
     fr: ["12:30", "18:00", "21:30"]

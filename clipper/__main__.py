@@ -1,9 +1,9 @@
-"""Points d'entrée : python -m clipper run|publish|recap|bot|channels"""
+"""Points d'entrée : python -m clipper tick|run|publish|recap|channels
+tick = ce que GitHub Actions lance toutes les heures (commandes Telegram, publication, récupération, récap)."""
 import json
 import os
 import secrets
 import sys
-import time
 import traceback
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -27,7 +27,7 @@ def run(cfg, con):
         con.execute("UPDATE clips SET views=?, score=? WHERE id=?", (c["views"], c["score"], c["id"]))
     con.commit()
     process(cfg, con, {s["login"]: s for s in streamers})
-    cleanup(con)
+    cleanup(cfg, con)
 
 
 def process(cfg, con, streamers):
@@ -38,6 +38,9 @@ def process(cfg, con, streamers):
         clip = dict(row)
         if clip["login"] not in streamers:
             continue
+        ready = con.execute("SELECT COUNT(*) FROM clips WHERE status='ready' AND lang=?", (clip["lang"],)).fetchone()[0]
+        if ready >= cfg["fetch"]["max_ready_per_lang"]:
+            continue  # stock suffisant : on garde l'hébergement léger et les clips frais
         raw = DATA / "raw" / f"{clip['id']}.mp4"
         try:
             edit.download(clip, rules, raw)
@@ -60,7 +63,7 @@ def process(cfg, con, streamers):
                            encoding="utf-8")
             edit.render(raw, out, iv, ass, cam)
             meta["seconds"] = round(total, 1)
-            set_status(con, clip["id"], "ready", path=str(out), meta=json.dumps(meta, ensure_ascii=False))
+            set_status(con, clip["id"], "ready", path=out.name, meta=json.dumps(meta, ensure_ascii=False))
         except Exception as e:  # un clip raté ne doit pas bloquer les autres
             set_status(con, clip["id"], "failed", error=str(e)[:500])
             print(traceback.format_exc(), file=sys.stderr)
@@ -86,14 +89,17 @@ def set_status(con, cid, status, **kw):
     con.commit()
 
 
-def cleanup(con, days=3):
-    """Supprime les vidéos publiées depuis plus de 3 jours (Buffer les a déjà récupérées)."""
-    limit_ts = time.time() - days * 86400
-    for p in (DATA / "out").glob("*.mp4"):
-        if p.stat().st_mtime < limit_ts:
-            p.unlink(missing_ok=True)
-    con.execute("UPDATE clips SET status='expired' WHERE status='ready' AND created_at < ?",
-                ((datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ"),))
+def cleanup(cfg, con):
+    """Expire les clips trop vieux et supprime les vidéos publiées depuis plus de 24 h
+    (Buffer les a déjà récupérées) : l'hébergement GitHub Pages reste sous 1 Go."""
+    now = datetime.now(timezone.utc)
+    oldest = (now - timedelta(hours=cfg["publish"]["max_clip_age_hours"])).strftime("%Y-%m-%dT%H:%M:%SZ")
+    con.execute("UPDATE clips SET status='expired' WHERE status='ready' AND created_at < ?", (oldest,))
+    for row in con.execute("SELECT id, status, path, posted_at FROM clips WHERE path IS NOT NULL").fetchall():
+        posted_long_ago = row["posted_at"] and datetime.fromisoformat(row["posted_at"]) < now - timedelta(hours=24)
+        if row["status"] in ("expired", "failed", "skipped") or posted_long_ago:
+            (DATA / "out" / row["path"]).unlink(missing_ok=True)
+            con.execute("UPDATE clips SET path=NULL WHERE id=?", (row["id"],))
     con.commit()
 
 
@@ -134,7 +140,7 @@ def publish(cfg, con):
             notify(f"ℹ️ Créneau {slot} ({lang}) : aucun clip prêt.")
             continue
         meta = json.loads(row["meta"])
-        url = f"{env('PUBLIC_BASE_URL').rstrip('/')}/{os.path.basename(row['path'])}"
+        url = f"{env('PUBLIC_BASE_URL').rstrip('/')}/{row['path']}"
         key_env = env(f"BUFFER_KEY_{lang.upper()}")
         done = []
         for service, channel in channels_for(lang):
@@ -172,25 +178,40 @@ HELP = ("/status — état\n/pause — stoppe les publications\n/resume — rela
         "/remove <login> — retire un streamer\n/restore <login> — le remet\n/list — streamers actifs")
 
 
-def bot(cfg):
-    """Bot Telegram (long polling). N'obéit qu'au chat configuré."""
-    token, chat = env("TELEGRAM_TOKEN"), str(env("TELEGRAM_CHAT_ID"))
-    api = f"https://api.telegram.org/bot{token}"
-    while True:
-        con = db()
+def poll_commands(cfg, con):
+    """Lit les messages Telegram reçus depuis le dernier passage. N'obéit qu'au chat configuré."""
+    token, chat = os.environ.get("TELEGRAM_TOKEN"), str(os.environ.get("TELEGRAM_CHAT_ID"))
+    if not token:
+        return
+    try:
+        res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates",
+                           params={"offset": get_state(con, "tg_offset", 0), "timeout": 0}, timeout=30).json()
+    except requests.RequestException:
+        return
+    for u in res.get("result", []):
+        set_state(con, "tg_offset", u["update_id"] + 1)
+        msg = u.get("message") or {}
+        if str(msg.get("chat", {}).get("id")) == chat:  # sécurité : on ignore tout autre expéditeur
+            notify(handle(cfg, con, msg.get("text", "")))
+
+
+def tick(cfg, con):
+    """Un passage horaire complet. Chaque étape est isolée : une panne n'empêche pas les autres."""
+    steps = [("commandes", poll_commands), ("publication", publish), ("récupération", run)]
+    now = datetime.now(ZoneInfo(cfg["timezone"]))
+    if now.hour == 23 and get_state(con, "recap_day") != f"{now:%Y-%m-%d}":
+        set_state(con, "recap_day", f"{now:%Y-%m-%d}")
+        steps.append(("récap", recap))
+    failed = False
+    for name, fn in steps:
         try:
-            offset = get_state(con, "tg_offset", 0)
-            res = requests.get(f"{api}/getUpdates", params={"offset": offset, "timeout": 50}, timeout=60).json()
-            for u in res.get("result", []):
-                set_state(con, "tg_offset", u["update_id"] + 1)
-                msg = u.get("message") or {}
-                if str(msg.get("chat", {}).get("id")) != chat:
-                    continue  # sécurité : on ignore tout autre expéditeur
-                notify(handle(cfg, con, msg.get("text", "")))
-        except requests.RequestException:
-            time.sleep(10)
-        finally:
-            con.close()
+            fn(cfg, con)
+        except Exception as e:
+            failed = True
+            notify(f"🔥 Panne ({name}) : {e}")
+            print(traceback.format_exc(), file=sys.stderr)
+    if failed:
+        sys.exit(1)
 
 
 def handle(cfg, con, text_in):
@@ -221,16 +242,14 @@ def handle(cfg, con, text_in):
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     cfg = load_config()
-    if cmd == "bot":
-        return bot(cfg)
     if cmd == "channels":
         for lang in ("fr", "en"):
             for c in buffer.channels(env(f"BUFFER_KEY_{lang.upper()}")):
                 print(lang, c["service"], c["id"], c["name"])
         return
-    fn = {"run": run, "publish": publish, "recap": recap}.get(cmd)
+    fn = {"tick": tick, "run": run, "publish": publish, "recap": recap}.get(cmd)
     if not fn:
-        sys.exit("usage : python -m clipper run|publish|recap|bot|channels")
+        sys.exit("usage : python -m clipper tick|run|publish|recap|channels")
     con = db()
     try:
         fn(cfg, con)

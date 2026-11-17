@@ -199,9 +199,10 @@ def render(src, dst, intervals, ass_path, cam):
         layout = (f"[v0]split[b][f];"
                   f"[b]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20[bg];"
                   f"[f]scale={W}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v1];")
-    graph = pre + layout + f"[v1]setsar=1,ass='{ass_path.as_posix()}'[v]"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-filter_complex", graph,
-                    "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dst)],
-                   check=True, timeout=1800)
+    # Nom de fichier seul + cwd : un chemin complet casse le filtre ass (":" sous Windows, espaces...)
+    graph = pre + layout + f"[v1]setsar=1,ass='{Path(ass_path).name}'[v]"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(Path(src).resolve()), "-filter_complex", graph,
+                    "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
+                    str(Path(dst).resolve())], check=True, timeout=1800, cwd=Path(ass_path).resolve().parent)
     return dst

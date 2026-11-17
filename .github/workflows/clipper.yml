@@ -1,0 +1,85 @@
+# Passage horaire : commandes Telegram, publication, récupération + montage, récap.
+# L'état (base SQLite + vidéos) vit sur la branche "data" ; les vidéos sont servies par GitHub Pages
+# (Buffer exige une URL HTTPS publique).
+name: clipper
+
+on:
+  schedule:
+    - cron: "7 * * * *"   # toutes les heures (GitHub peut retarder de quelques minutes)
+  workflow_dispatch:       # bouton "Run workflow" pour lancer à la main
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: clipper
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    environment:
+      name: github-pages
+    env:
+      CLIPPER_DATA: data
+      PUBLIC_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+      TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+      TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+      BUFFER_KEY_FR: ${{ secrets.BUFFER_KEY_FR }}
+      BUFFER_KEY_EN: ${{ secrets.BUFFER_KEY_EN }}
+      BUFFER_CHANNELS_FR: ${{ secrets.BUFFER_CHANNELS_FR }}
+      BUFFER_CHANNELS_EN: ${{ secrets.BUFFER_CHANNELS_EN }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Récupérer l'état (branche data)
+        env:
+          URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
+        run: |
+          git clone -q --depth 1 --branch data "$URL" data || { mkdir -p data && git -C data init -q -b data && git -C data remote add origin "$URL"; }
+          mkdir -p data/out
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Cache des modèles (Whisper + Ollama)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.ollama/models
+          key: models-small-qwen2.5-3b
+
+      - name: Installer
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg fonts-dejavu-core zstd
+          pip install -q -r requirements.txt
+          curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst | sudo tar --zstd -x -C /usr
+          (ollama serve > /tmp/ollama.log 2>&1 &) && sleep 3 && ollama pull qwen2.5:3b
+
+      - name: Passage
+        run: python -m clipper tick
+
+      - name: Sauvegarder l'état
+        if: always()
+        working-directory: data
+        run: |
+          git add -A
+          git -c user.name=clipper -c user.email=clipper@users.noreply.github.com commit -q --amend -m state \
+            || git -c user.name=clipper -c user.email=clipper@users.noreply.github.com commit -q -m state
+          git push -q -f origin HEAD:data
+
+      - uses: actions/upload-pages-artifact@v3
+        if: always()
+        with:
+          path: data/out
+
+      - uses: actions/deploy-pages@v4
+        if: always()

@@ -1,9 +1,0 @@
-[Unit]
-Description=Clipper recap timer
-
-[Timer]
-OnCalendar=*-*-* 23:30
-Persistent=true
-
-[Install]
-WantedBy=timers.target
