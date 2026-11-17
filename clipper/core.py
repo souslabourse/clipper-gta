@@ -56,9 +56,9 @@ def active_streamers(cfg, con):
 
 def notify(text):
     """Message Telegram. Ne casse jamais le pipeline si Telegram est en panne."""
+    print("[telegram]", text, flush=True)  # aussi dans les journaux GitHub, pour le diagnostic
     token, chat = os.environ.get("TELEGRAM_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if not (token and chat):
-        print("[telegram]", text)
         return
     try:
         requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
