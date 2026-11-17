@@ -169,21 +169,19 @@ def test(cfg, con):
     if not langs:
         return notify("🧪 Test : aucune langue branchée sur Buffer.")
     lang = langs[0]
+    # Un clip "ready" vient forcément d'un passage précédent : il est déjà en ligne sur Pages.
     row = con.execute("SELECT * FROM clips WHERE status='ready' AND lang=? AND path IS NOT NULL "
-                      "AND id IN (SELECT value FROM json_each(?)) ORDER BY score DESC LIMIT 1",
-                      (lang, json.dumps(get_state(con, "test_ready", [])))).fetchone()
+                      "ORDER BY score DESC LIMIT 1", (lang,)).fetchone()
     if row:
         now = datetime.now(ZoneInfo(cfg["timezone"]))
         notify(f"🧪 Test : publication immédiate de « {json.loads(row['meta'])['title']} »")
         return post_clip(cfg, con, row, lang, f"test:{now:%Y-%m-%d %H:%M}", now)
     cfg["fetch"].update(lookback_hours=24 * 7, process_per_run=2)
     cfg["streamers"] = [s for s in cfg["streamers"] if s["lang"] == lang]
-    before = {r[0] for r in con.execute("SELECT id FROM clips WHERE status='ready'")}
     run(cfg, con)
-    new = [r[0] for r in con.execute("SELECT id FROM clips WHERE status='ready' AND lang=?", (lang,)) if r[0] not in before]
-    set_state(con, "test_ready", new)
-    notify(f"🧪 Test : {len(new)} clip(s) {lang} préparé(s). Relance le test dans 2 min pour publier."
-           if new else f"🧪 Test : aucun clip {lang} exploitable trouvé sur 7 jours.")
+    n = con.execute("SELECT COUNT(*) FROM clips WHERE status='ready' AND lang=?", (lang,)).fetchone()[0]
+    notify(f"🧪 Test : {n} clip(s) {lang} préparé(s). Relance le test dans 2 min pour publier."
+           if n else f"🧪 Test : aucun clip {lang} exploitable trouvé sur 7 jours.")
 
 
 def recap(cfg, con):
