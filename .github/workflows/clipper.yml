@@ -7,6 +7,10 @@ on:
   schedule:
     - cron: "7 * * * *"   # toutes les heures (GitHub peut retarder de quelques minutes)
   workflow_dispatch:       # bouton "Run workflow" pour lancer à la main
+    inputs:
+      command:
+        description: "tick (normal) ou test (publie un clip tout de suite, en 2 lancements)"
+        default: tick
 
 permissions:
   contents: write
@@ -65,7 +69,7 @@ jobs:
           (ollama serve > /tmp/ollama.log 2>&1 &) && sleep 3 && ollama pull qwen2.5:3b
 
       - name: Passage
-        run: python -m clipper tick
+        run: python -m clipper ${{ inputs.command || 'tick' }}
 
       - name: Sauvegarder l'état
         if: always()

@@ -139,22 +139,51 @@ def publish(cfg, con):
         if not row:
             notify(f"ℹ️ Créneau {slot} ({lang}) : aucun clip prêt.")
             continue
-        meta = json.loads(row["meta"])
-        url = f"{env('PUBLIC_BASE_URL').rstrip('/')}/{row['path']}"
-        key_env = env(f"CLIPPER_BUFFER_KEY_{lang.upper()}")
-        done = []
-        for service, channel in channels_for(lang):
-            try:
-                bid = buffer.post(key_env, channel, service, url, meta, pub["youtube_category"])
-                con.execute("INSERT INTO posts VALUES (?,?,?,?,?)", (row["id"], service, bid, key, now.isoformat()))
-                done.append(service)
-            except Exception as e:
-                notify(f"❌ Publication {service} ({lang}) échouée : {e}")
-        if done:
-            set_status(con, row["id"], "posted", posted_at=now.isoformat())
-            notify(f"✅ Publié ({lang}, {', '.join(done)}) : {meta['title']} — {meta['seconds']}s, "
-                   f"{row['views']} vues Twitch\n{row['url']}")
-        con.commit()
+        post_clip(cfg, con, row, lang, key, now)
+
+
+def post_clip(cfg, con, row, lang, slot_key, now):
+    meta = json.loads(row["meta"])
+    url = f"{env('PUBLIC_BASE_URL').rstrip('/')}/{row['path']}"
+    key_env = env(f"CLIPPER_BUFFER_KEY_{lang.upper()}")
+    done = []
+    for service, channel in channels_for(lang):
+        try:
+            bid = buffer.post(key_env, channel, service, url, meta, cfg["publish"]["youtube_category"])
+            con.execute("INSERT INTO posts VALUES (?,?,?,?,?)", (row["id"], service, bid, slot_key, now.isoformat()))
+            done.append(service)
+        except Exception as e:
+            notify(f"❌ Publication {service} ({lang}) échouée : {e}")
+    if done:
+        set_status(con, row["id"], "posted", posted_at=now.isoformat())
+        notify(f"✅ Publié ({lang}, {', '.join(done)}) : {meta['title']} — {meta['seconds']}s, "
+               f"{row['views']} vues Twitch\n{row['url']}")
+    con.commit()
+
+
+def test(cfg, con):
+    """Test manuel en 2 lancements : 1) prépare un clip (7 derniers jours) ; 2) le publie tout de suite.
+    Deux lancements car la vidéo doit être en ligne sur GitHub Pages avant que Buffer la télécharge."""
+    poll_commands(cfg, con)
+    langs = [lang for lang in cfg["publish"]["slots"] if os.environ.get(f"CLIPPER_BUFFER_KEY_{lang.upper()}")]
+    if not langs:
+        return notify("🧪 Test : aucune langue branchée sur Buffer.")
+    lang = langs[0]
+    row = con.execute("SELECT * FROM clips WHERE status='ready' AND lang=? AND path IS NOT NULL "
+                      "AND id IN (SELECT value FROM json_each(?)) ORDER BY score DESC LIMIT 1",
+                      (lang, json.dumps(get_state(con, "test_ready", [])))).fetchone()
+    if row:
+        now = datetime.now(ZoneInfo(cfg["timezone"]))
+        notify(f"🧪 Test : publication immédiate de « {json.loads(row['meta'])['title']} »")
+        return post_clip(cfg, con, row, lang, f"test:{now:%Y-%m-%d %H:%M}", now)
+    cfg["fetch"].update(lookback_hours=24 * 7, process_per_run=2)
+    cfg["streamers"] = [s for s in cfg["streamers"] if s["lang"] == lang]
+    before = {r[0] for r in con.execute("SELECT id FROM clips WHERE status='ready'")}
+    run(cfg, con)
+    new = [r[0] for r in con.execute("SELECT id FROM clips WHERE status='ready' AND lang=?", (lang,)) if r[0] not in before]
+    set_state(con, "test_ready", new)
+    notify(f"🧪 Test : {len(new)} clip(s) {lang} préparé(s). Relance le test dans 2 min pour publier."
+           if new else f"🧪 Test : aucun clip {lang} exploitable trouvé sur 7 jours.")
 
 
 def recap(cfg, con):
@@ -249,9 +278,9 @@ def main():
             for c in buffer.channels(os.environ[f"CLIPPER_BUFFER_KEY_{lang.upper()}"]):
                 print(lang, c["service"], c["id"], c["name"])
         return
-    fn = {"tick": tick, "run": run, "publish": publish, "recap": recap}.get(cmd)
+    fn = {"tick": tick, "test": test, "run": run, "publish": publish, "recap": recap}.get(cmd)
     if not fn:
-        sys.exit("usage : python -m clipper tick|run|publish|recap|channels")
+        sys.exit("usage : python -m clipper tick|test|run|publish|recap|channels")
     con = db()
     try:
         fn(cfg, con)
