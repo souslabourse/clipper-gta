@@ -69,7 +69,9 @@ jobs:
           (ollama serve > /tmp/ollama.log 2>&1 &) && sleep 3 && ollama pull qwen2.5:3b
 
       - name: Passage
-        run: python -m clipper ${{ inputs.command || 'tick' }}
+        env:
+          CMD: ${{ inputs.command || 'tick' }}
+        run: python -m clipper "$CMD"
 
       - name: Sauvegarder l'état
         if: always()
