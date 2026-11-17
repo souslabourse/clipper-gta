@@ -5,16 +5,22 @@ import re
 import requests
 
 PROMPT = {
-    "fr": "Tu écris pour TikTok en français familier. Clip GTA du streamer {login}. "
-          "Titre Twitch : \"{title}\". Transcription : \"{transcript}\".\n"
-          "Réponds en JSON : {{\"hook\": accroche choc de 3 à 6 mots, "
-          "\"title\": titre au format '{login} + action + rebondissement' avec 1 ou 2 emojis parmi 😭💀😂🔥, "
-          "max 80 caractères, \"hashtags\": 3 hashtags pertinents sans #}}. Ne révèle pas la chute dans l'accroche.",
-    "en": "You write TikTok captions in casual US English. GTA clip of streamer {login}. "
-          "Twitch title: \"{title}\". Transcript: \"{transcript}\".\n"
-          "Answer in JSON: {{\"hook\": punchy 3-6 word hook, "
-          "\"title\": title formatted '{login} + action + twist' with 1-2 emojis from 😭💀😂🔥, "
-          "max 80 chars, \"hashtags\": 3 relevant hashtags without #}}. Don't spoil the payoff in the hook.",
+    "fr": "Tu écris le titre d'un clip TikTok GTA, en français familier.\n"
+          "Streamer : {login}. Titre Twitch du clip : \"{title}\". Ce qui est dit : \"{transcript}\".\n"
+          "Exemples de bons titres : \"Michou se fait braquer par un PNJ 😭\", "
+          "\"Squeezie tente le plus gros saut de GTA 6 💀\", \"JLTomy finit en prison pour rien 😂\".\n"
+          "Règles : le titre commence par le nom du streamer et décrit précisément ce qui se passe dans le clip, "
+          "1 ou 2 emojis (😭💀😂🔥), 80 caractères max. "
+          "L'accroche fait 3 à 6 mots, donne envie de regarder sans dévoiler la fin (ex. \"Il s'attendait pas à ça\").\n"
+          "Réponds uniquement en JSON : {{\"hook\": \"...\", \"title\": \"...\", \"hashtags\": [\"...\", \"...\", \"...\"]}}",
+    "en": "You write the title of a GTA TikTok clip, in casual US English.\n"
+          "Streamer: {login}. Twitch clip title: \"{title}\". What is said: \"{transcript}\".\n"
+          "Good title examples: \"Kai Cenat gets robbed by an NPC 😭\", \"xQc tries the biggest jump in GTA 6 💀\", "
+          "\"Lacy ends up in jail for nothing 😂\".\n"
+          "Rules: the title starts with the streamer's name and says exactly what happens in the clip, "
+          "1-2 emojis (😭💀😂🔥), 80 chars max. "
+          "The hook is 3-6 words, makes people watch without spoiling the ending (e.g. \"He did NOT see this coming\").\n"
+          "Answer only in JSON: {{\"hook\": \"...\", \"title\": \"...\", \"hashtags\": [\"...\", \"...\", \"...\"]}}",
 }
 
 
