@@ -52,8 +52,13 @@ def process(cfg, con, streamers):
                 set_status(con, clip["id"], "skipped", error=f"trop court après coupe ({total:.0f}s)")
                 continue
             meta = text.generate(clip, " ".join(w for _, _, w in words), clip["lang"], cfg["models"]["ollama"])
-            moved = [(edit.remap(s, iv), edit.remap(e, iv), w) for s, e, w in words]
-            moved = [(s, e, w) for s, e, w in moved if s is not None and e is not None]
+            try:
+                mine = edit.streamer_words(audio, words)
+            except Exception as e:  # séparation des voix ratée : tout en gros, comme avant
+                print(f"voix : {e}", file=sys.stderr)
+                mine = [True] * len(words)
+            moved = [(edit.remap(s, iv), edit.remap(e, iv), w, m) for (s, e, w), m in zip(words, mine)]
+            moved = [x for x in moved if x[0] is not None and x[1] is not None]
             fc = streamers[clip["login"]].get("facecam", "auto")
             cam = None if fc == "none" else fc if isinstance(fc, list) else edit.detect_facecam(raw)
             out = DATA / "out" / f"{secrets.token_urlsafe(12)}.mp4"  # nom imprévisible : URL publique

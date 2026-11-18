@@ -67,6 +67,44 @@ def transcribe(path, lang, model_name):
     return words, audio
 
 
+SHERPA = Path.home() / ".cache" / "sherpa"  # modèles téléchargés par le workflow
+
+
+def streamer_words(audio, words, threshold=0.95):
+    """Pour chaque mot : vrai si c'est la voix du streamer (= la voix qui parle le plus dans le clip).
+    Les autres voix (joueurs du RP, PNJ) sont fausses. Sans les modèles : tout est au streamer."""
+    seg, emb = SHERPA / "segmentation.onnx", SHERPA / "embedding.onnx"
+    if not words or not (seg.exists() and emb.exists()):
+        return [True] * len(words)
+    import sherpa_onnx as so
+    cfg = so.OfflineSpeakerDiarizationConfig(
+        segmentation=so.OfflineSpeakerSegmentationModelConfig(
+            pyannote=so.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(seg))),
+        embedding=so.SpeakerEmbeddingExtractorConfig(model=str(emb)),
+        clustering=so.FastClusteringConfig(num_clusters=-1, threshold=threshold),
+        min_duration_on=0.3, min_duration_off=0.5)
+    res = so.OfflineSpeakerDiarization(cfg).process(np.ascontiguousarray(audio)).sort_by_start_time()
+    turns = [(r.start, r.end, r.speaker) for r in res]
+    return words_owner(words, turns)
+
+
+def words_owner(words, turns):
+    if not turns:
+        return [True] * len(words)
+    talk = Counter()
+    for a, b, k in turns:
+        talk[k] += b - a
+    main = talk.most_common(1)[0][0]
+    out = []
+    for s, e, _ in words:
+        ov = Counter()
+        for a, b, k in turns:
+            ov[k] += max(0.0, min(e, b) - max(s, a))
+        best, t = ov.most_common(1)[0]
+        out.append(t == 0 or best == main)  # mot hors de tout tour de parole : on le laisse au streamer
+    return out
+
+
 def rms(audio, hop=1600):
     n = len(audio) // hop
     return np.sqrt((audio[: n * hop].reshape(n, hop) ** 2).mean(axis=1)) if n else np.zeros(0)
@@ -122,7 +160,8 @@ def _esc(s):
 
 
 def build_ass(words, hook, credit, total, style):
-    """Mots par groupes, mot actif surligné en jaune ; accroche en haut ; crédit en bas."""
+    """Mots par groupes, mot actif surligné en jaune ; accroche en haut ; crédit en bas.
+    Un mot peut porter un 4e champ : faux = autre voix que le streamer, écrite plus petit."""
     f, size = style["font"], style["font_size"]
     lines = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}", "",
@@ -131,6 +170,7 @@ def build_ass(words, hook, credit, total, style):
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
         "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
         f"Style: Word,{f},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,5,60,60,0,1",
+        f"Style: Other,{f},{size * 3 // 5},&H00DDDDDD,&H00DDDDDD,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
         f"Style: Hook,{f},64,&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,140,1",
         f"Style: Credit,{f},38,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,3,0,9,30,30,{CAM_H + 20},1",
         "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -141,18 +181,23 @@ def build_ass(words, hook, credit, total, style):
     n = style["words_per_group"]
     y = CAM_H + 260  # juste sous la facecam, sur le jeu
     groups, cur = [], []
-    for w in words:  # groupes de n mots, coupés en fin de phrase
+    words = [(*w[:3], w[3] if len(w) > 3 else True) for w in words]
+    for w in words:  # groupes de n mots, coupés en fin de phrase et au changement de voix
+        if cur and cur[-1][3] != w[3]:
+            groups.append(cur)
+            cur = []
         cur.append(w)
         if len(cur) == n or w[2][-1:] in ".?!":
             groups.append(cur)
             cur = []
     groups += [cur] if cur else []
     for group in groups:
-        for i, (s, e, _) in enumerate(group):
+        name = "Word" if group[0][3] else "Other"
+        for i, (s, e, _, _) in enumerate(group):
             nxt = group[i + 1][0] if i + 1 < len(group) else e
             text = " ".join(("{\\c&H00FFFF&\\fscx112\\fscy112}" + _esc(w.upper()) + "{\\r}") if j == i
-                            else _esc(w.upper()) for j, (_, _, w) in enumerate(group))
-            lines.append(f"Dialogue: 0,{_ts(s)},{_ts(max(nxt, s + 0.05))},Word,,0,0,0,,{{\\pos({W // 2},{y})}}{text}")
+                            else _esc(w.upper()) for j, (_, _, w, _) in enumerate(group))
+            lines.append(f"Dialogue: 0,{_ts(s)},{_ts(max(nxt, s + 0.05))},{name},,0,0,0,,{{\\pos({W // 2},{y})}}{text}")
     return "\n".join(lines) + "\n"
 
 

@@ -99,3 +99,14 @@ def test_bot_pause_et_retrait(tmp_path, monkeypatch):
     assert "xqc" not in handle(cfg, con, "/list")
     handle(cfg, con, "/restore xqc")
     assert "xqc" in handle(cfg, con, "/list")
+
+
+def test_voix_du_streamer_en_gros():
+    turns = [(0.0, 5.0, 0), (5.0, 7.0, 1), (7.0, 12.0, 0)]  # voix 0 parle le plus = streamer
+    words = [(1.0, 1.5, "salut"), (5.5, 6.0, "yo"), (8.0, 8.5, "mec"), (20.0, 20.5, "hors")]
+    assert edit.words_owner(words, turns) == [True, False, True, True]
+    ass = edit.build_ass([(0.0, 0.4, "moi", True), (0.5, 0.9, "lui", False)], "", "c", 2.0,
+                         {"font": "F", "font_size": 90, "words_per_group": 3})
+    lines = ass.splitlines()
+    assert "Style: Other,F,54," in ass
+    assert ",Word," in next(l for l in lines if "MOI" in l) and ",Other," in next(l for l in lines if "LUI" in l)
