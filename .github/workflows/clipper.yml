@@ -9,7 +9,7 @@ on:
   workflow_dispatch:       # bouton "Run workflow" pour lancer à la main
     inputs:
       command:
-        description: "tick (normal) ou test (publie un clip tout de suite, en 2 lancements)"
+        description: "tick (normal), test (publie un clip tout de suite), run (montage seul), redo (remonte les clips prêts), channels"
         default: tick
 
 permissions:

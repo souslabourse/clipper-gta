@@ -156,3 +156,13 @@ def test_pic_pour_ouverture_choc():
     assert edit.peak_time(energy, 0.1, [(0.0, 3.0)]) is None   # clip trop court
     ass = edit.build_ass([], "regarde", "c", 10.0, {"font": "F", "font_size": 90, "words_per_group": 3}, 1.5)
     assert ",Big,,0,0,0,,REGARDE" in ass
+
+
+def test_creneaux_semaine_de_sortie():
+    from clipper.core import load_config
+    pub = load_config()["publish"]
+    for slots in pub["slots"].values():
+        assert len(slots) <= pub["max_per_day"]
+        mins = sorted(int(h) * 60 + int(m) for h, m in (x.split(":") for x in slots))
+        # au moins 1 h 30 entre deux créneaux : un passage horaire en retard ne publie pas deux fois d'affilée
+        assert all(b - a >= 90 for a, b in zip(mins, mins[1:]))

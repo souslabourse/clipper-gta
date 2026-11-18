@@ -26,12 +26,12 @@ rules:
   program_boost: 2.0        # priorité des streamers avec programme de clipping
 
 publish:
-  max_per_day: 3            # par langue, par plateforme (anti-spam)
+  max_per_day: 6            # par langue, par plateforme (semaine de sortie de GTA 6)
   window_minutes: 90        # GitHub lance le passage horaire avec du retard : large tolérance
   max_clip_age_hours: 48
   slots:                    # heure de Paris
-    fr: ["12:30", "18:00", "21:30"]
-    en: ["16:00", "21:00", "00:30"]
+    fr: ["12:30", "15:00", "17:30", "19:00", "21:30", "23:00"]
+    en: ["14:00", "16:00", "18:30", "21:00", "00:30", "03:00"]   # soirée US = nuit à Paris
   youtube_category: "20"    # Gaming
 
 style:

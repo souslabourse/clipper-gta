@@ -117,6 +117,16 @@ def cleanup(cfg, con):
     con.commit()
 
 
+def redo(cfg, con):
+    """Remonte les clips prêts avec le montage actuel : remis en file, anciennes vidéos supprimées."""
+    for row in con.execute("SELECT id, path FROM clips WHERE status='ready'").fetchall():
+        if row["path"]:
+            (DATA / "out" / row["path"]).unlink(missing_ok=True)
+        con.execute("UPDATE clips SET status='new', path=NULL, meta=NULL WHERE id=?", (row["id"],))
+    con.commit()
+    run(cfg, con)
+
+
 def due_slot(now, slots, window_min):
     """Créneau 'HH:MM' en cours (entre l'heure prévue et +window), sinon None."""
     for s in slots:
@@ -290,9 +300,9 @@ def main():
             for c in buffer.channels(os.environ[f"CLIPPER_BUFFER_KEY_{lang.upper()}"]):
                 print(lang, c["service"], c["id"], c["name"])
         return
-    fn = {"tick": tick, "test": test, "run": run, "publish": publish, "recap": recap}.get(cmd)
+    fn = {"tick": tick, "test": test, "run": run, "publish": publish, "recap": recap, "redo": redo}.get(cmd)
     if not fn:
-        sys.exit("usage : python -m clipper tick|test|run|publish|recap|channels")
+        sys.exit("usage : python -m clipper tick|test|run|publish|recap|channels|redo")
     con = db()
     try:
         fn(cfg, con)
