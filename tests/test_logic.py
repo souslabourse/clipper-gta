@@ -144,3 +144,15 @@ def test_decouverte_categorie(monkeypatch):
     out = twitch.discover({}, {"g"}, "x", {"en": 1000, "fr": 200}, {"user5"}, 1)
     # 1 clip max par streamer, langue gardée, seuil par langue, streamer exclu ignoré
     assert [(c["id"], c["login"], c["lang"]) for c in out] == [("a", "user1", "en"), ("c", "user2", "fr")]
+
+
+def test_pic_pour_ouverture_choc():
+    energy = np.full(300, 0.1)            # 30 s, pas de 0,1 s
+    energy[20:30] = 5.0                   # cri à 2 s : trop tôt, pas d'ouverture choc là
+    energy[150:160] = 3.0                 # explosion à 15 s
+    energy[250:260] = 9.0                 # plus fort, mais dans une coupe
+    t = edit.peak_time(energy, 0.1, [(0.0, 20.0), (27.0, 30.0)][:1])
+    assert 14.5 <= t <= 16.0
+    assert edit.peak_time(energy, 0.1, [(0.0, 3.0)]) is None   # clip trop court
+    ass = edit.build_ass([], "regarde", "c", 10.0, {"font": "F", "font_size": 90, "words_per_group": 3}, 1.5)
+    assert ",Big,,0,0,0,,REGARDE" in ass

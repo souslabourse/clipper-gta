@@ -150,6 +150,21 @@ def keep_intervals(words, energy, hop_s, duration, max_silence, pad=0.25):
     return [(a, b) for a, b in out if b - a > 0.05]
 
 
+def peak_time(energy, hop_s, intervals, skip=4.0, win=1.0):
+    """Moment le plus intense (son le plus fort, lissé sur 1 s) dans les passages gardés,
+    hors des `skip` premières secondes (sinon l'ouverture choc ne montrerait rien de neuf). None sinon."""
+    if not len(energy):
+        return None
+    k = max(1, int(win / hop_s))
+    smooth = np.convolve(energy, np.ones(k) / k, mode="same")
+    best, t_best, start = 0.0, None, intervals[0][0] + skip
+    for a, b in intervals:
+        for i in range(int(max(a, start) / hop_s), min(len(smooth), int(b / hop_s))):
+            if smooth[i] > best:
+                best, t_best = float(smooth[i]), i * hop_s
+    return t_best
+
+
 def remap(t, intervals):
     """Temps d'origine -> temps dans la vidéo coupée (None si t tombe dans une coupe)."""
     acc = 0.0
@@ -171,7 +186,7 @@ def _esc(s):
     return s.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
-def build_ass(words, hook, credit, total, style):
+def build_ass(words, hook, credit, total, style, teaser=0.0):
     """Mots par groupes, mot actif surligné en jaune ; accroche en haut ; crédit en bas.
     Un mot peut porter un 4e champ : faux = autre voix que le streamer, écrite plus petit."""
     f, size = style["font"], style["font_size"]
@@ -184,11 +199,15 @@ def build_ass(words, hook, credit, total, style):
         f"Style: Word,{f},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,5,60,60,0,1",
         f"Style: Other,{f},{size * 3 // 5},&H00DDDDDD,&H00DDDDDD,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
         f"Style: Hook,{f},64,&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,140,1",
+        f"Style: Big,{f},104,&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,24,0,5,70,70,0,1",
         f"Style: Credit,{f},38,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,3,0,9,30,30,{CAM_H + 20},1",
         "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
     if hook:
-        lines.append(f"Dialogue: 2,{_ts(0)},{_ts(min(total, 2.5))},Hook,,0,0,0,,{_esc(hook.upper())}")
+        if teaser:  # 1re image = couverture TikTok : moment fort + accroche en gros au centre
+            lines.append(f"Dialogue: 2,{_ts(0)},{_ts(teaser + 0.6)},Big,,0,0,0,,{_esc(hook.upper())}")
+        else:
+            lines.append(f"Dialogue: 2,{_ts(0)},{_ts(min(total, 2.5))},Hook,,0,0,0,,{_esc(hook.upper())}")
     lines.append(f"Dialogue: 1,{_ts(0)},{_ts(total)},Credit,,0,0,0,,{_esc(credit)}")
     n = style["words_per_group"]
     y = CAM_H + 260  # juste sous la facecam, sur le jeu
@@ -298,11 +317,19 @@ def cam_edges(gx, gy, face, fw, fh, strong=12, need=0.75):
 SAT_H = 770  # bande de vidéo satisfaisante sous le jeu (clips sans facecam)
 
 
-def render(src, dst, intervals, ass_path, cam, filler=None):
-    """filler : vidéo satisfaisante (sans son) mise sous le jeu quand il n'y a pas de facecam."""
+def render(src, dst, intervals, ass_path, cam, filler=None, teaser=None):
+    """filler : vidéo satisfaisante (sans son) mise sous le jeu quand il n'y a pas de facecam.
+    teaser : (début, fin) d'un extrait collé AVANT le clip (ouverture choc)."""
     sel = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in intervals)
-    pre = (f"[0:v]select='{sel}',setpts=N/FRAME_RATE/TB,fps=30[v0];"
-           f"[0:a]aselect='{sel}',asetpts=N/SR/TB[a];")
+    if teaser:
+        a, b = teaser
+        pre = (f"[0:v]split[va][vb];[va]trim={a:.3f}:{b:.3f},setpts=PTS-STARTPTS,fps=30[t0];"
+               f"[vb]select='{sel}',setpts=N/FRAME_RATE/TB,fps=30[m0];[t0][m0]concat=n=2:v=1:a=0[v0];"
+               f"[0:a]asplit[aa][ab];[aa]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS[ta];"
+               f"[ab]aselect='{sel}',asetpts=N/SR/TB[ma];[ta][ma]concat=n=2:v=0:a=1[a];")
+    else:
+        pre = (f"[0:v]select='{sel}',setpts=N/FRAME_RATE/TB,fps=30[v0];"
+               f"[0:a]aselect='{sel}',asetpts=N/SR/TB[a];")
     if cam:
         x, y, w, h = cam
         game_h = H - CAM_H

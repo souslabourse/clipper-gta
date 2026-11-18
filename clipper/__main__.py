@@ -61,17 +61,21 @@ def process(cfg, con, streamers):
             except Exception as e:  # séparation des voix ratée : tout en gros, comme avant
                 print(f"voix : {e}", file=sys.stderr)
                 mine = [True] * len(words)
+            peak = edit.peak_time(edit.rms(audio), 0.1, iv)
+            teaser = (max(0.0, peak - 0.3), peak + 1.2) if peak is not None else None
+            lead = teaser[1] - teaser[0] if teaser else 0.0  # tout le clip est décalé d'autant
             moved = [(edit.remap(s, iv), edit.remap(e, iv), w, m) for (s, e, w), m in zip(words, mine)]
-            moved = [x for x in moved if x[0] is not None and x[1] is not None]
+            moved = [(s + lead, e + lead, w, m) for s, e, w, m in moved if s is not None and e is not None]
+            total += lead
             fc = streamers.get(clip["login"], {}).get("facecam", "auto")
             cam = None if fc == "none" else fc if isinstance(fc, list) else edit.detect_facecam(raw)
             out = DATA / "out" / f"{secrets.token_urlsafe(12)}.mp4"  # nom imprévisible : URL publique
             out.parent.mkdir(parents=True, exist_ok=True)
             ass = raw.with_suffix(".ass")
-            ass.write_text(edit.build_ass(moved, meta["hook"], f"twitch.tv/{clip['login']}", total, cfg["style"]),
+            ass.write_text(edit.build_ass(moved, meta["hook"], f"twitch.tv/{clip['login']}", total, cfg["style"], lead),
                            encoding="utf-8")
             sat = sorted((ROOT / "assets" / "satisfying").glob("*.mp4"))
-            edit.render(raw, out, iv, ass, cam, random.choice(sat) if sat else None)
+            edit.render(raw, out, iv, ass, cam, random.choice(sat) if sat else None, teaser)
             meta["seconds"] = round(total, 1)
             set_status(con, clip["id"], "ready", path=out.name, meta=json.dumps(meta, ensure_ascii=False))
         except Exception as e:  # un clip raté ne doit pas bloquer les autres
