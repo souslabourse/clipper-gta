@@ -33,15 +33,18 @@ def run(cfg, con):
 
 def process(cfg, con, streamers):
     rules = cfg["rules"]
-    rows = con.execute("SELECT * FROM clips WHERE status='new' ORDER BY score DESC LIMIT ?",
-                       (cfg["fetch"]["process_per_run"],)).fetchall()
+    rows = con.execute("SELECT * FROM clips WHERE status='new' ORDER BY score DESC").fetchall()
+    budget = cfg["fetch"]["process_per_run"]  # compté sur les clips vraiment traités : un stock EN plein ne bloque pas le FR
     for row in rows:
         clip = dict(row)
+        if budget <= 0:
+            break
         if clip["login"] in get_state(con, "removed", []):
             continue  # retiré par /remove (les clips « découverte » ne sont pas dans la liste)
         ready = con.execute("SELECT COUNT(*) FROM clips WHERE status='ready' AND lang=?", (clip["lang"],)).fetchone()[0]
         if ready >= cfg["fetch"]["max_ready_per_lang"]:
             continue  # stock suffisant : on garde l'hébergement léger et les clips frais
+        budget -= 1
         raw = DATA / "raw" / f"{clip['id']}.mp4"
         try:
             edit.download(clip, rules, raw)
