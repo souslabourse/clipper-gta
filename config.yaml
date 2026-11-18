@@ -12,6 +12,7 @@ fetch:
   min_views: 300            # en dessous, on ignore
   process_per_run: 6        # clips montés par passage
   max_ready_per_lang: 4     # stock max de clips prêts par langue (hébergement < 1 Go)
+  discover: {en: 1000, fr: 200}  # + meilleurs clips GTA de TOUT Twitch dans ces langues (vues mini)
 
 # Règles issues de l'analyse du 17/11/2026 (240 TikTok + 120 Shorts GTA).
 # Mises à jour automatiquement par l'analyse hebdomadaire.

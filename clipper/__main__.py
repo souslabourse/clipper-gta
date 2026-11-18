@@ -18,7 +18,7 @@ from .core import DATA, ROOT, active_streamers, db, env, get_state, load_config,
 def run(cfg, con):
     """Récupère les nouveaux clips puis en monte quelques-uns."""
     streamers = active_streamers(cfg, con)
-    clips, missing = twitch.fetch_clips(cfg, streamers)
+    clips, missing = twitch.fetch_clips(cfg, streamers, get_state(con, "removed", []))
     if missing and missing != get_state(con, "missing"):
         notify(f"⚠️ Logins Twitch introuvables (à corriger dans config.yaml) : {', '.join(missing)}")
         set_state(con, "missing", missing)
@@ -37,8 +37,8 @@ def process(cfg, con, streamers):
                        (cfg["fetch"]["process_per_run"],)).fetchall()
     for row in rows:
         clip = dict(row)
-        if clip["login"] not in streamers:
-            continue
+        if clip["login"] in get_state(con, "removed", []):
+            continue  # retiré par /remove (les clips « découverte » ne sont pas dans la liste)
         ready = con.execute("SELECT COUNT(*) FROM clips WHERE status='ready' AND lang=?", (clip["lang"],)).fetchone()[0]
         if ready >= cfg["fetch"]["max_ready_per_lang"]:
             continue  # stock suffisant : on garde l'hébergement léger et les clips frais
@@ -60,7 +60,7 @@ def process(cfg, con, streamers):
                 mine = [True] * len(words)
             moved = [(edit.remap(s, iv), edit.remap(e, iv), w, m) for (s, e, w), m in zip(words, mine)]
             moved = [x for x in moved if x[0] is not None and x[1] is not None]
-            fc = streamers[clip["login"]].get("facecam", "auto")
+            fc = streamers.get(clip["login"], {}).get("facecam", "auto")
             cam = None if fc == "none" else fc if isinstance(fc, list) else edit.detect_facecam(raw)
             out = DATA / "out" / f"{secrets.token_urlsafe(12)}.mp4"  # nom imprévisible : URL publique
             out.parent.mkdir(parents=True, exist_ok=True)

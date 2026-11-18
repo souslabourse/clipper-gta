@@ -129,3 +129,18 @@ def test_apostrophes_recollees():
     words = [(0.0, 0.1, "d"), (0.1, 0.5, "'enquête"), (0.6, 0.7, "l'"), (0.7, 0.9, "a"), (1.0, 1.2, "est"), (1.2, 1.3, "-ce")]
     assert [w for _, _, w in edit.join_elisions(words)] == ["d'enquête", "l'a", "est-ce"]
     assert edit.join_elisions(words)[0] == (0.0, 0.5, "d'enquête")
+
+
+def test_decouverte_categorie(monkeypatch):
+    from clipper import twitch
+    def clip(i, b, lang, views):
+        return {"id": i, "broadcaster_id": b, "broadcaster_name": b.upper(), "language": lang, "view_count": views,
+                "title": "t", "created_at": "2026-11-18T10:00:00Z", "url": "u", "duration": 30}
+    clips = [clip("a", "1", "en", 5000), clip("b", "1", "en", 4000), clip("c", "2", "fr", 300),
+             clip("d", "3", "en", 900), clip("e", "4", "es", 9000), clip("f", "5", "en", 2000)]
+    def fake(h, path, params):
+        return clips if path == "clips" else [{"id": x, "login": f"user{x}"} for _, x in params]
+    monkeypatch.setattr(twitch, "_get", fake)
+    out = twitch.discover({}, {"g"}, "x", {"en": 1000, "fr": 200}, {"user5"}, 1)
+    # 1 clip max par streamer, langue gardée, seuil par langue, streamer exclu ignoré
+    assert [(c["id"], c["login"], c["lang"]) for c in out] == [("a", "user1", "en"), ("c", "user2", "fr")]
