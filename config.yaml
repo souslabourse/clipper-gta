@@ -44,6 +44,7 @@ models:
 
 # Liste autorisée. program = lien du programme de clipping (null si aucun).
 # facecam: auto (détection), none, ou [x, y, largeur, hauteur] en fractions de l'image.
+# min_views (optionnel) : remplace fetch.min_views pour ce streamer.
 streamers:
   # --- EN, avec programme ---
   - {login: kaicenat, lang: en, program: "https://www.clyper.io/clipping-programs/kai-cenat"}
@@ -68,3 +69,4 @@ streamers:
   - {login: michou, lang: fr, program: null}
   - {login: aminematue, lang: fr, program: null}
   - {login: flamby, lang: fr, program: null}
+  - {login: finnyzyy, lang: fr, program: null, min_views: 10}   # joue à GTA 6 en avance (18/11)

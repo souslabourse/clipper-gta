@@ -35,7 +35,8 @@ def fetch_clips(cfg, streamers):
             continue
         data = _get(h, "clips", {"broadcaster_id": users[s["login"]], "first": 50,
                                  "started_at": since.strftime("%Y-%m-%dT%H:%M:%SZ")})
-        data = [c for c in data if c["game_id"] in games and c["view_count"] >= cfg["fetch"]["min_views"]]
+        mini = s.get("min_views", cfg["fetch"]["min_views"])
+        data = [c for c in data if c["game_id"] in games and c["view_count"] >= mini]
         data.sort(key=lambda c: c["view_count"], reverse=True)
         boost = cfg["rules"]["program_boost"] if s.get("program") else 1.0
         for c in data[:cfg["fetch"]["clips_per_streamer"]]:
