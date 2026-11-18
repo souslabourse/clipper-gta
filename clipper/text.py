@@ -28,7 +28,7 @@ def generate(clip, transcript, lang, model):
     try:
         r = requests.post("http://localhost:11434/api/generate", timeout=300, json={
             "model": model, "stream": False, "format": "json", "options": {"temperature": 0.7},
-            "prompt": PROMPT[lang].format(login=clip["login"], title=clip["title"], transcript=transcript[:1500])})
+            "prompt": PROMPT[lang].format(login=clip.get("name") or clip["login"], title=clip["title"], transcript=transcript[:1500])})
         r.raise_for_status()
         data = json.loads(r.json()["response"])
     except (requests.RequestException, ValueError, KeyError):
@@ -39,7 +39,7 @@ def generate(clip, transcript, lang, model):
 def finalize(data, clip, lang):
     """Valide la sortie du modèle et retombe sur le titre Twitch si besoin."""
     login = clip["login"]
-    title = str(data.get("title") or f"{login}: {clip['title']}")[:90]
+    title = str(data.get("title") or f"{clip.get('name') or login}: {clip['title']}")[:90]
     hook = str(data.get("hook") or clip["title"])[:40]
     tags = [re.sub(r"[^\w]", "", str(t)).lower() for t in (data.get("hashtags") or [])]
     base = ["gta6", "gtarp" if lang == "en" else "gtarpfr", login]

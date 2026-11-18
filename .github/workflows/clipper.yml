@@ -59,14 +59,14 @@ jobs:
           path: |
             ~/.cache/huggingface
             ~/.ollama/models
-          key: models-small-qwen2.5-3b
+          key: models-small-qwen2.5-7b
 
       - name: Installer
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q ffmpeg fonts-dejavu-core zstd
           pip install -q -r requirements.txt
           curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst | sudo tar --zstd -x -C /usr
-          (ollama serve > /tmp/ollama.log 2>&1 &) && sleep 3 && ollama pull qwen2.5:3b
+          (ollama serve > /tmp/ollama.log 2>&1 &) && sleep 3 && ollama pull qwen2.5:7b
 
       - name: Passage
         env:

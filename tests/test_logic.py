@@ -57,6 +57,7 @@ def test_textes_de_secours_et_hashtags():
     m = text.finalize({"title": "X", "hook": "Y", "hashtags": ["#GTA6", "funny", "a", "b", "c"]}, clip, "fr")
     assert m["hashtags"][:3] == ["gta6", "gtarpfr", "kaicenat"] and len(m["hashtags"]) == 5
     assert "Crédit" in m["description"]
+    assert text.finalize({}, {**clip, "name": "KaiCenat"}, "en")["title"].startswith("KaiCenat")
 
 
 def test_ass_mot_actif_et_echappement():

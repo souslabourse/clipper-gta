@@ -40,7 +40,7 @@ style:
 
 models:
   whisper: small            # faster-whisper, CPU int8
-  ollama: qwen2.5:3b
+  ollama: qwen2.5:7b
 
 # Liste autorisée. program = lien du programme de clipping (null si aucun).
 # facecam: auto (détection), none, ou [x, y, largeur, hauteur] en fractions de l'image.

@@ -173,7 +173,7 @@ def detect_facecam(path, samples=8):
             continue
         fh, fw = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        for (x, y, w, h) in cascade.detectMultiScale(gray, 1.1, 6, minSize=(fh // 25, fh // 25)):
+        for (x, y, w, h) in cascade.detectMultiScale(gray, 1.1, 6, minSize=(fh // 45, fh // 45)):
             hits.append((x, y, w, h))
     cap.release()
     return facecam_from_hits(hits, fw, fh, samples)

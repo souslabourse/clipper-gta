@@ -31,11 +31,15 @@ def db():
             id TEXT PRIMARY KEY, login TEXT, lang TEXT, title TEXT, views INT,
             created_at TEXT, url TEXT, video_id TEXT, vod_offset INT, duration REAL,
             score REAL, status TEXT DEFAULT 'new', path TEXT, meta TEXT, error TEXT,
-            posted_at TEXT);
+            posted_at TEXT, name TEXT);
         CREATE TABLE IF NOT EXISTS posts (
             clip_id TEXT, channel TEXT, buffer_id TEXT, slot TEXT, posted_at TEXT);
         CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
     """)
+    try:  # anciennes bases sans la colonne du nom affiché
+        con.execute("ALTER TABLE clips ADD COLUMN name TEXT")
+    except sqlite3.OperationalError:
+        pass
     return con
 
 

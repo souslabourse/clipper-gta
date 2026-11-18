@@ -40,7 +40,7 @@ def fetch_clips(cfg, streamers):
         boost = cfg["rules"]["program_boost"] if s.get("program") else 1.0
         for c in data[:cfg["fetch"]["clips_per_streamer"]]:
             out.append({
-                "id": c["id"], "login": s["login"], "lang": s["lang"], "title": c["title"],
+                "id": c["id"], "login": s["login"], "name": c.get("broadcaster_name") or s["login"], "lang": s["lang"], "title": c["title"],
                 "views": c["view_count"], "created_at": c["created_at"], "url": c["url"],
                 "video_id": c.get("video_id") or None, "vod_offset": c.get("vod_offset"),
                 "duration": c["duration"], "score": c["view_count"] * boost})
