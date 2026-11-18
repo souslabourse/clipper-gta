@@ -311,7 +311,9 @@ def render(src, dst, intervals, ass_path, cam):
                   f"[b]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20[bg];"
                   f"[f]scale={W}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v1];")
     # Nom de fichier seul + cwd : un chemin complet casse le filtre ass (":" sous Windows, espaces...)
-    graph = pre + layout + f"[v1]setsar=1,ass='{Path(ass_path).name}'[v]"
+    fonts = MODELS / "fonts"  # police fournie par le workflow (pas de paquet système)
+    extra = f":fontsdir='{fonts.as_posix()}'" if fonts.is_dir() else ""
+    graph = pre + layout + f"[v1]setsar=1,ass='{Path(ass_path).name}'{extra}[v]"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(Path(src).resolve()), "-filter_complex", graph,
                     "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",

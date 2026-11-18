@@ -60,12 +60,17 @@ jobs:
             ~/.cache/huggingface
             ~/.ollama/models
             ~/.cache/clipper
-          key: models-small-qwen2.5-7b-voix-visages
+          key: models-small-qwen2.5-7b-voix-visages-ffmpeg
 
       - name: Installer
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg fonts-dejavu-core zstd
+          # ffmpeg (avec libass) et police depuis GitHub + cache : le miroir apt d'Ubuntu a déjà mis 13 min
+          mkdir -p ~/.cache/clipper/bin ~/.cache/clipper/fonts && echo "$HOME/.cache/clipper/bin" >> "$GITHUB_PATH"
+          [ -x ~/.cache/clipper/bin/ffmpeg ] || curl -fsSL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz | tar xJ -C ~/.cache/clipper/bin --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+          [ -f ~/.cache/clipper/fonts/DejaVuSans-Bold.ttf ] || curl -fsSL https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2 | tar xj -C ~/.cache/clipper/fonts --strip-components=2 --wildcards '*/ttf/DejaVuSans.ttf' '*/ttf/DejaVuSans-Bold.ttf'
+          export PATH="$HOME/.cache/clipper/bin:$PATH" && ffmpeg -hide_banner -filters | grep -q " ass " || { echo "ffmpeg sans libass"; exit 1; }
           pip install -q -r requirements.txt
+          command -v zstd >/dev/null || sudo apt-get install -y -q zstd
           curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst | sudo tar --zstd -x -C /usr
           (ollama serve > /tmp/ollama.log 2>&1 &) && sleep 3 && ollama pull qwen2.5:7b
           R=https://github.com/k2-fsa/sherpa-onnx/releases/download; mkdir -p ~/.cache/clipper && cd ~/.cache/clipper
