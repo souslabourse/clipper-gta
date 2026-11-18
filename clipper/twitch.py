@@ -36,7 +36,11 @@ def fetch_clips(cfg, streamers):
         data = _get(h, "clips", {"broadcaster_id": users[s["login"]], "first": 50,
                                  "started_at": since.strftime("%Y-%m-%dT%H:%M:%SZ")})
         mini = s.get("min_views", cfg["fetch"]["min_views"])
-        data = [c for c in data if c["game_id"] in games and c["view_count"] >= mini]
+        gta = [c for c in data if c["game_id"] in games]
+        data = [c for c in gta if c["view_count"] >= mini]
+        if s["lang"] == "fr" or data:  # journal : pourquoi un streamer ne donne rien
+            print(f"{s['login']} : {len(gta)} clips GTA récents, {len(data)} ≥ {mini} vues, "
+                  f"max {max((c['view_count'] for c in gta), default=0)} vues")
         data.sort(key=lambda c: c["view_count"], reverse=True)
         boost = cfg["rules"]["program_boost"] if s.get("program") else 1.0
         for c in data[:cfg["fetch"]["clips_per_streamer"]]:
