@@ -1,4 +1,5 @@
 """Téléchargement, transcription, coupe des temps morts, recadrage 9:16 et sous-titres."""
+import random
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -294,7 +295,11 @@ def cam_edges(gx, gy, face, fw, fh, strong=12, need=0.75):
 
 # ---------- rendu ----------
 
-def render(src, dst, intervals, ass_path, cam):
+SAT_H = 770  # bande de vidéo satisfaisante sous le jeu (clips sans facecam)
+
+
+def render(src, dst, intervals, ass_path, cam, filler=None):
+    """filler : vidéo satisfaisante (sans son) mise sous le jeu quand il n'y a pas de facecam."""
     sel = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in intervals)
     pre = (f"[0:v]select='{sel}',setpts=N/FRAME_RATE/TB,fps=30[v0];"
            f"[0:a]aselect='{sel}',asetpts=N/SR/TB[a];")
@@ -306,6 +311,11 @@ def render(src, dst, intervals, ass_path, cam):
                   f"scale={W}:{CAM_H}:force_original_aspect_ratio=increase,crop={W}:{CAM_H}[cam];"
                   f"[g]crop=ih*{W}/{game_h}:ih,scale={W}:{game_h}[game];"
                   f"[cam][game]vstack[v1];")
+    elif filler:
+        game_h = H - SAT_H
+        layout = (f"[v0]scale=-2:{game_h},crop={W}:{game_h}[game];"
+                  f"[1:v]scale={W}:{SAT_H}:force_original_aspect_ratio=increase,crop={W}:{SAT_H},fps=30,setsar=1[sat];"
+                  f"[game][sat]vstack=shortest=1[v1];")
     else:
         layout = (f"[v0]split[b][f];"
                   f"[b]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20[bg];"
@@ -314,8 +324,10 @@ def render(src, dst, intervals, ass_path, cam):
     fonts = MODELS / "fonts"  # police fournie par le workflow (pas de paquet système)
     extra = f":fontsdir='{fonts.as_posix()}'" if fonts.is_dir() else ""
     graph = pre + layout + f"[v1]setsar=1,ass='{Path(ass_path).name}'{extra}[v]"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(Path(src).resolve()), "-filter_complex", graph,
+    # Boucle + départ au hasard : la même vidéo ne commence pas toujours pareil (toutes durent ≥ 15 s)
+    fill = ["-stream_loop", "-1", "-ss", f"{random.uniform(0, 10):.1f}", "-i", str(Path(filler).resolve())] if filler and not cam else []
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(Path(src).resolve()), *fill, "-filter_complex", graph,
                     "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-shortest",
                     str(Path(dst).resolve())], check=True, timeout=1800, cwd=Path(ass_path).resolve().parent)
     return dst

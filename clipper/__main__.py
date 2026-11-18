@@ -2,6 +2,7 @@
 tick = ce que GitHub Actions lance toutes les heures (commandes Telegram, publication, récupération, récap)."""
 import json
 import os
+import random
 import secrets
 import sys
 import traceback
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from . import buffer, edit, text, twitch
-from .core import DATA, active_streamers, db, env, get_state, load_config, notify, set_state
+from .core import DATA, ROOT, active_streamers, db, env, get_state, load_config, notify, set_state
 
 
 def run(cfg, con):
@@ -66,7 +67,8 @@ def process(cfg, con, streamers):
             ass = raw.with_suffix(".ass")
             ass.write_text(edit.build_ass(moved, meta["hook"], f"twitch.tv/{clip['login']}", total, cfg["style"]),
                            encoding="utf-8")
-            edit.render(raw, out, iv, ass, cam)
+            sat = sorted((ROOT / "assets" / "satisfying").glob("*.mp4"))
+            edit.render(raw, out, iv, ass, cam, random.choice(sat) if sat else None)
             meta["seconds"] = round(total, 1)
             set_status(con, clip["id"], "ready", path=out.name, meta=json.dumps(meta, ensure_ascii=False))
         except Exception as e:  # un clip raté ne doit pas bloquer les autres
