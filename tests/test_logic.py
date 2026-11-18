@@ -43,6 +43,18 @@ def test_facecam_vote():
     assert edit.facecam_from_hits(moving, 1920, 1080, 8) is None   # que des visages du jeu
 
 
+def test_facecam_cadre_reel():
+    gx, gy = np.zeros((1080, 1919)), np.zeros((1079, 1920))
+    gx[:257, 458] = 50   # bord droit de la cam (x=459)
+    gy[257, :459] = 50   # bord bas (y=258) ; la cam touche le coin haut-gauche
+    gx[60:160, 134] = 50  # contour du casque : trop court pour être un bord de cam
+    cam = edit.facecam_from_hits([(155, 88, 57, 57)] * 6, 1920, 1080, 8, gx, gy)
+    got = [round(v * d) for v, d in zip(cam, (1920, 1080, 1920, 1080))]
+    assert all(abs(a - b) <= 1 for a, b in zip(got, [0, 0, 459, 258])), got
+    gx[:] = gy[:] = 0     # aucun cadre : on retombe sur l'estimation depuis le visage
+    assert edit.facecam_from_hits([(155, 88, 57, 57)] * 6, 1920, 1080, 8, gx, gy)[2] < 0.15
+
+
 def test_creneaux():
     paris = datetime(2026, 11, 19, 18, 5)
     assert due_slot(paris, ["12:30", "18:00"], 20) == "18:00"

@@ -210,7 +210,7 @@ def detect_facecam(path, samples=8):
     cap = cv2.VideoCapture(str(path))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
     cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    hits, fw, fh = [], 1, 1
+    hits, grays, fw, fh = [], [], 1, 1
     for k in range(samples):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * (k + 0.5) / samples))
         ok, frame = cap.read()
@@ -218,13 +218,17 @@ def detect_facecam(path, samples=8):
             continue
         fh, fw = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        grays.append(gray.astype(np.float32))
         for (x, y, w, h) in cascade.detectMultiScale(gray, 1.1, 6, minSize=(fh // 45, fh // 45)):
             hits.append((x, y, w, h))
     cap.release()
-    return facecam_from_hits(hits, fw, fh, samples)
+    # Bords présents sur toutes les images : le cadre de la cam reste, le jeu bouge.
+    gx = np.median([np.abs(np.diff(g, axis=1)) for g in grays], axis=0) if grays else None
+    gy = np.median([np.abs(np.diff(g, axis=0)) for g in grays], axis=0) if grays else None
+    return facecam_from_hits(hits, fw, fh, samples, gx, gy)
 
 
-def facecam_from_hits(hits, fw, fh, samples):
+def facecam_from_hits(hits, fw, fh, samples, gx=None, gy=None):
     if not hits:
         return None
     cell = lambda x, y, w, h: (int((x + w / 2) / fw * 10), int((y + h / 2) / fh * 10))
@@ -232,11 +236,40 @@ def facecam_from_hits(hits, fw, fh, samples):
     if count < samples / 2:
         return None
     x, y, w, h = [int(np.median(v)) for v in zip(*[b for b in hits if cell(*b) == best])]
-    cw = min(fw, w * 4.5)  # shortcut: cadre estimé depuis le visage ; régler "facecam" par streamer si mal cadré
-    ch = min(fh, cw * 9 / 16)
-    cx = min(max(0, x + w / 2 - cw / 2), fw - cw)
-    cy = min(max(0, y + h / 2 - ch / 2), fh - ch)
-    return [cx / fw, cy / fh, cw / fw, ch / fh]
+    box = cam_edges(gx, gy, (x, y, w, h), fw, fh) if gx is not None else None
+    if box is None:  # pas de cadre net : on estime depuis le visage
+        cw = min(fw, w * 4.5)  # shortcut: cadre estimé ; régler "facecam" par streamer si mal cadré
+        ch = min(fh, cw * 9 / 16)
+        cx = min(max(0, x + w / 2 - cw / 2), fw - cw)
+        cy = min(max(0, y + h / 2 - ch / 2), fh - ch)
+        box = (cx, cy, cx + cw, cy + ch)
+    left, top, right, bottom = box
+    return [left / fw, top / fh, (right - left) / fw, (bottom - top) / fh]
+
+
+def cam_edges(gx, gy, face, fw, fh, strong=12, need=0.75):
+    """Cadre réel de la cam : de chaque côté du visage, la 1re ligne droite fixe qui traverse
+    la zone du visage (un contour de corps ne la traverse pas). Pas de ligne = bord de l'image.
+    Renvoie (gauche, haut, droite, bas) en pixels, ou None si le résultat n'a pas l'air d'une cam."""
+    x, y, w, h = face
+    ys = slice(max(0, y + h // 2 - 2 * h), y + h // 2 + 2 * h)
+    xs = slice(max(0, x + w // 2 - 2 * w), x + w // 2 + 2 * w)
+
+    def cover(m):  # part de la bande traversée par un bord, à 1 pixel près
+        m2 = m.copy()
+        m2[:, 1:] |= m[:, :-1]
+        m2[:, :-1] |= m[:, 1:]
+        return m2.mean(axis=0)
+
+    vert, horz = cover(gx[ys] > strong), cover((gy[:, xs] > strong).T)
+    right = next((i + 1 for i in range(x + w, len(vert)) if vert[i] >= need), fw)
+    left = next((i + 1 for i in range(x - 1, -1, -1) if vert[i] >= need), 0)
+    bottom = next((i + 1 for i in range(y + h, len(horz)) if horz[i] >= need), fh)
+    top = next((i + 1 for i in range(y - 1, -1, -1) if horz[i] >= need), 0)
+    cw, ch = right - left, bottom - top
+    if cw > 0.7 * fw or ch > 0.7 * fh or cw < 2 * w or ch < 2 * h or not 1.0 <= cw / ch <= 2.4:
+        return None
+    return left, top, right, bottom
 
 
 # ---------- rendu ----------
