@@ -53,14 +53,14 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Cache des modèles (Whisper + Ollama + voix)
+      - name: Cache des modèles (Whisper + Ollama + voix + visages)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/huggingface
             ~/.ollama/models
-            ~/.cache/sherpa
-          key: models-small-qwen2.5-7b-sherpa
+            ~/.cache/clipper
+          key: models-small-qwen2.5-7b-voix-visages
 
       - name: Installer
         run: |
@@ -68,12 +68,13 @@ jobs:
           pip install -q -r requirements.txt
           curl -fsSL https://ollama.com/download/ollama-linux-amd64.tar.zst | sudo tar --zstd -x -C /usr
           (ollama serve > /tmp/ollama.log 2>&1 &) && sleep 3 && ollama pull qwen2.5:7b
-          R=https://github.com/k2-fsa/sherpa-onnx/releases/download; mkdir -p ~/.cache/sherpa && cd ~/.cache/sherpa
+          R=https://github.com/k2-fsa/sherpa-onnx/releases/download; mkdir -p ~/.cache/clipper && cd ~/.cache/clipper
           if [ ! -f segmentation.onnx ]; then
             curl -fsSL $R/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2 | tar xj --strip-components=1 sherpa-onnx-pyannote-segmentation-3-0/model.onnx
             mv model.onnx segmentation.onnx
           fi
           [ -f embedding.onnx ] || curl -fsSL -o embedding.onnx $R/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
+          [ -f yunet.onnx ] || curl -fsSL -o yunet.onnx https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 
       - name: Passage
         env:

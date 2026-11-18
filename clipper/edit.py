@@ -64,16 +64,27 @@ def transcribe(path, lang, model_name):
     audio = np.frombuffer(res.stdout, dtype=np.float32)
     segments, _ = _model.transcribe(audio, language=lang, word_timestamps=True, vad_filter=True)
     words = [(w.start, w.end, w.word.strip()) for s in segments for w in (s.words or []) if w.word.strip()]
-    return words, audio
+    return join_elisions(words), audio
 
 
-SHERPA = Path.home() / ".cache" / "sherpa"  # modèles téléchargés par le workflow
+def join_elisions(words):
+    """Whisper coupe « d'enquête » en « d » + « 'enquête » : on recolle."""
+    out = []
+    for s, e, w in words:
+        if out and (w[0] in "'’-" or out[-1][2][-1] in "'’"):
+            out[-1] = (out[-1][0], e, out[-1][2] + w)
+        else:
+            out.append((s, e, w))
+    return out
+
+
+MODELS = Path.home() / ".cache" / "clipper"  # voix + visages, téléchargés par le workflow
 
 
 def streamer_words(audio, words, threshold=0.95):
     """Pour chaque mot : vrai si c'est la voix du streamer (= la voix qui parle le plus dans le clip).
     Les autres voix (joueurs du RP, PNJ) sont fausses. Sans les modèles : tout est au streamer."""
-    seg, emb = SHERPA / "segmentation.onnx", SHERPA / "embedding.onnx"
+    seg, emb = MODELS / "segmentation.onnx", MODELS / "embedding.onnx"
     if not words or not (seg.exists() and emb.exists()):
         return [True] * len(words)
     import sherpa_onnx as so
@@ -210,6 +221,7 @@ def detect_facecam(path, samples=8):
     cap = cv2.VideoCapture(str(path))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
     cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    yunet, det = MODELS / "yunet.onnx", None  # YuNet voit les visages de profil / sous casquette, pas Haar
     hits, grays, fw, fh = [], [], 1, 1
     for k in range(samples):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * (k + 0.5) / samples))
@@ -219,8 +231,13 @@ def detect_facecam(path, samples=8):
         fh, fw = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         grays.append(gray.astype(np.float32))
-        for (x, y, w, h) in cascade.detectMultiScale(gray, 1.1, 6, minSize=(fh // 45, fh // 45)):
-            hits.append((x, y, w, h))
+        if yunet.exists():
+            det = det or cv2.FaceDetectorYN.create(str(yunet), "", (fw, fh), 0.7)
+            faces = det.detect(frame)[1]
+            found = [] if faces is None else [tuple(int(v) for v in f[:4]) for f in faces]
+        else:
+            found = cascade.detectMultiScale(gray, 1.1, 6, minSize=(fh // 45, fh // 45))
+        hits += [tuple(b) for b in found if min(b[2], b[3]) >= fh // 45]
     cap.release()
     # Bords présents sur toutes les images : le cadre de la cam reste, le jeu bouge.
     gx = np.median([np.abs(np.diff(g, axis=1)) for g in grays], axis=0) if grays else None
@@ -238,6 +255,9 @@ def facecam_from_hits(hits, fw, fh, samples, gx=None, gy=None):
     x, y, w, h = [int(np.median(v)) for v in zip(*[b for b in hits if cell(*b) == best])]
     box = cam_edges(gx, gy, (x, y, w, h), fw, fh) if gx is not None else None
     if box is None:  # pas de cadre net : on estime depuis le visage
+        fx, fy = (x + w / 2) / fw, (y + h / 2) / fh
+        if not ((fx < 0.3 or fx > 0.7) and (fy < 0.3 or fy > 0.7)):
+            return None  # visage immobile hors d'un coin et sans cadre : un perso du jeu, pas une cam
         cw = min(fw, w * 4.5)  # shortcut: cadre estimé ; régler "facecam" par streamer si mal cadré
         ch = min(fh, cw * 9 / 16)
         cx = min(max(0, x + w / 2 - cw / 2), fw - cw)

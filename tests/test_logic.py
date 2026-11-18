@@ -41,6 +41,7 @@ def test_facecam_vote():
     assert cam and cam[0] > 0.6 and cam[1] < 0.2
     assert abs(cam[0] + cam[2] - 1.0) < 1e-6 or cam[0] + cam[2] <= 1.0
     assert edit.facecam_from_hits(moving, 1920, 1080, 8) is None   # que des visages du jeu
+    assert edit.facecam_from_hits([(540, 330, 30, 30)] * 6, 1920, 1080, 8) is None  # perso immobile au centre
 
 
 def test_facecam_cadre_reel():
@@ -122,3 +123,9 @@ def test_voix_du_streamer_en_gros():
     lines = ass.splitlines()
     assert "Style: Other,F,54," in ass
     assert ",Word," in next(l for l in lines if "MOI" in l) and ",Other," in next(l for l in lines if "LUI" in l)
+
+
+def test_apostrophes_recollees():
+    words = [(0.0, 0.1, "d"), (0.1, 0.5, "'enquête"), (0.6, 0.7, "l'"), (0.7, 0.9, "a"), (1.0, 1.2, "est"), (1.2, 1.3, "-ce")]
+    assert [w for _, _, w in edit.join_elisions(words)] == ["d'enquête", "l'a", "est-ce"]
+    assert edit.join_elisions(words)[0] == (0.0, 0.5, "d'enquête")
