@@ -197,6 +197,8 @@ def _ts(t):
 
 
 def _esc(s):
+    # Emojis retirés : la police n'en a pas, ils sortaient en carrés vides sur la vidéo (couvertures du 25/11).
+    s = "".join(c for c in s if ord(c) <= 0xFFFF and c not in "\ufe0f\u200d").strip()
     return s.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
@@ -293,8 +295,9 @@ def facecam_from_hits(hits, fw, fh, samples, gx=None, gy=None):
     box = cam_edges(gx, gy, (x, y, w, h), fw, fh) if gx is not None else None
     if box is None:  # pas de cadre net : on estime depuis le visage
         fx, fy = (x + w / 2) / fw, (y + h / 2) / fh
-        if not ((fx < 0.3 or fx > 0.7) and (fy < 0.3 or fy > 0.7)):
-            return None  # visage immobile hors d'un coin et sans cadre : un perso du jeu, pas une cam
+        corner = (fx < 0.3 or fx > 0.7) and (fy < 0.3 or fy > 0.7)
+        if not corner and (count < 0.75 * samples or not (fx < 0.2 or fx > 0.8)):
+            return None  # hors d'un coin : il faut un visage sur le côté et fixe presque tout le clip (cam de Squeezie)
         cw = min(fw, w * 4.5)  # shortcut: cadre estimé ; régler "facecam" par streamer si mal cadré
         ch = min(fh, cw * 9 / 16)
         cx = min(max(0, x + w / 2 - cw / 2), fw - cw)

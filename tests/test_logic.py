@@ -213,3 +213,8 @@ def test_titre_faible_plutot_que_titre_twitch(monkeypatch):
     monkeypatch.setattr(text, "_ask", lambda *a: next(answers))
     m = text.generate({"login": "kaicenat", "name": "KaiCenat", "title": "lol"}, "x", "en", "m")
     assert m["title"] == "Kai a un moment de panique 😭"
+
+
+def test_pas_d_emoji_a_l_ecran():
+    ass = edit.build_ass([], "Michou a tapé quoi ? 😱", "c", 10.0, {"font": "F", "font_size": 90, "words_per_group": 3})
+    assert "MICHOU A TAPÉ QUOI ?" in ass and "😱" not in ass
