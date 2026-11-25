@@ -218,3 +218,39 @@ def test_titre_faible_plutot_que_titre_twitch(monkeypatch):
 def test_pas_d_emoji_a_l_ecran():
     ass = edit.build_ass([], "Michou a tapé quoi ? 😱", "c", 10.0, {"font": "F", "font_size": 90, "words_per_group": 3})
     assert "MICHOU A TAPÉ QUOI ?" in ass and "😱" not in ass
+
+
+def test_score_de_viralite_et_invites():
+    from datetime import timezone
+    from clipper import twitch
+    now = datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc)
+    assert twitch.virality(2000, "2026-11-25T11:00:00Z", now) == 2000      # 2000 vues en 1 h
+    assert twitch.virality(10000, "2026-11-23T12:00:00Z", now) < 300       # 10 000 vues en 2 jours
+    assert twitch.virality(50, "2026-11-25T11:55:00Z", now) == 50          # 1re heure comptée pleine
+    assert twitch.has_vip("Anyme023 avec LÉA ÉLUI à minuit", ["lea elui"])
+    assert not twitch.has_vip("Léa la policière", ["lea elui"])
+
+
+def test_ouverture_ni_noire_ni_figee():
+    a = np.full((180, 320), 120, np.float32)
+    b = a.copy()
+    b[:90] += 30
+    assert edit.visible(a, b)                       # ça bouge, c'est clair
+    assert not edit.visible(a, a)                   # menu / carte figé
+    assert not edit.visible(a * 0.1, b * 0.1)       # écran noir
+
+
+def test_invite_publie_hors_creneau(tmp_path, monkeypatch):
+    from clipper import __main__ as m
+    monkeypatch.setattr("clipper.core.DATA", tmp_path)
+    monkeypatch.setenv("CLIPPER_BUFFER_KEY_FR", "k")
+    con = db()
+    con.executemany("INSERT INTO clips (id, lang, status, path, vip, meta, created_at) VALUES (?,?,?,?,?,?,?)", [
+        ("lea", "fr", "ready", "a.mp4", 1, '{"title": "T"}', "2999-01-01T00:00:00Z"),
+        ("autre", "fr", "ready", "b.mp4", 0, '{"title": "U"}', "2999-01-01T00:00:00Z")])
+    posted = []
+    monkeypatch.setattr(m, "post_clip", lambda cfg, con, row, lang, slot, now: posted.append((row["id"], slot)))
+    cfg = {"timezone": "Europe/Paris", "publish": {"slots": {"fr": []}, "window_minutes": 90,
+                                                   "max_per_day": 6, "max_clip_age_hours": 24}}
+    m.publish(cfg, con)
+    assert [p[0] for p in posted] == ["lea"] and posted[0][1].startswith("vip:fr:")

@@ -37,10 +37,11 @@ def db():
             clip_id TEXT, channel TEXT, buffer_id TEXT, slot TEXT, posted_at TEXT);
         CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
     """)
-    try:  # anciennes bases sans la colonne du nom affiché
-        con.execute("ALTER TABLE clips ADD COLUMN name TEXT")
-    except sqlite3.OperationalError:
-        pass
+    for col in ("name TEXT", "vip INT DEFAULT 0", "bonus REAL DEFAULT 1"):  # anciennes bases
+        try:
+            con.execute(f"ALTER TABLE clips ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass
     return con
 
 

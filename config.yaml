@@ -24,6 +24,7 @@ rules:
   max_silence: 0.8          # temps mort coupé au-delà (s)
   hook_seconds: 2.5         # texte d'accroche affiché au début
   program_boost: 2.0        # priorité des streamers avec programme de clipping
+  face_bonus: 1.5           # publication : priorité aux clips avec facecam (couverture avec un visage)
 
 publish:
   max_per_day: 6            # par langue, par plateforme (semaine de sortie de GTA 6)
@@ -42,6 +43,10 @@ style:
 models:
   whisper: small            # faster-whisper, CPU int8
   ollama: qwen2.5:7b
+
+# Invités : un clip dont le titre Twitch ou les paroles citent un de ces noms est monté en priorité
+# (même peu vu, même stock plein) et publié tout de suite EN PLUS des créneaux.
+vip: ["lea elui", "leaelui"]
 
 # Liste autorisée. program = lien du programme de clipping (null si aucun).
 # facecam: auto (détection), none, ou [x, y, largeur, hauteur] en fractions de l'image.
@@ -63,6 +68,9 @@ streamers:
   - {login: penta, lang: en, program: null}
   - {login: ludwig, lang: en, program: null}
   - {login: jynxzi, lang: en, program: null}
+  - {login: valkyrae, lang: en, program: null}
+  - {login: emiru, lang: en, program: null}
+  - {login: lilypichu, lang: en, program: null}
   # N3on est sur Kick : pas couvert par l'API Twitch (v2).
   # --- FR, sans programme connu ---
   - {login: jltomy, lang: fr, program: null}
@@ -74,3 +82,6 @@ streamers:
   - {login: aminematue, lang: fr, program: null}
   - {login: flamby, lang: fr, program: null}
   - {login: finnyzyy, lang: fr, program: null, min_views: 10}   # joue à GTA 6 en avance (18/11)
+  - {login: trixy, lang: fr, program: null}         # streameuses GTA RP (ajout 25/11)
+  - {login: ailybou, lang: fr, program: null}
+  - {login: kaatsup, lang: fr, program: null}

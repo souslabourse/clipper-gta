@@ -1,5 +1,4 @@
 """Téléchargement, transcription, coupe des temps morts, recadrage 9:16 et sous-titres."""
-import random
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -166,7 +165,8 @@ def peak_time(energy, hop_s, intervals, skip=4.0, win=1.0):
 
 
 def punch_times(energy, hop_s, intervals, n=3, gap=6.0, skip=4.0):
-    """Les n moments les plus forts (espacés d'au moins `gap` s) : zooms « punch-in » du montage."""
+    """Les n moments les plus forts (espacés d'au moins `gap` s), du plus fort au moins fort :
+    zooms « punch-in » du montage et candidats pour l'ouverture choc."""
     out, loud = [], 2 * float(np.median(energy)) if len(energy) else 0.0  # un pic = 2× le niveau habituel
     for _ in range(n):
         masked = energy.copy()
@@ -176,7 +176,34 @@ def punch_times(energy, hop_s, intervals, n=3, gap=6.0, skip=4.0):
         if t is None or masked[min(len(masked) - 1, int(t / hop_s))] < loud:
             break
         out.append(t)
-    return sorted(out)
+    return out
+
+
+def pick_teaser(path, candidates, dark=35.0, still=3.0):
+    """Ouverture choc = 1re image (couverture TikTok) : le moment le plus fort qui SE VOIT.
+    On écarte écrans noirs (chargement) et images figées (menu, carte, inventaire). Sinon le plus fort."""
+    if not candidates:
+        return None
+    import cv2
+    cap = cv2.VideoCapture(str(path))
+    try:
+        for t in candidates:
+            frames = []
+            for dt in (0.0, 0.5):
+                cap.set(cv2.CAP_PROP_POS_MSEC, (t + dt) * 1000)
+                ok, f = cap.read()
+                if ok:
+                    frames.append(cv2.cvtColor(cv2.resize(f, (320, 180)), cv2.COLOR_BGR2GRAY).astype(np.float32))
+            if len(frames) == 2 and visible(*frames, dark, still):
+                return t
+    finally:
+        cap.release()
+    return candidates[0]
+
+
+def visible(a, b, dark=35.0, still=3.0):
+    """Vrai si l'image n'est ni noire ni figée (deux images à 0,5 s d'écart)."""
+    return float(a.mean()) > dark and float(np.abs(a - b).mean()) > still
 
 
 def remap(t, intervals):
@@ -334,12 +361,11 @@ def cam_edges(gx, gy, face, fw, fh, strong=12, need=0.75):
 
 # ---------- rendu ----------
 
-SAT_H = 770  # bande de vidéo satisfaisante sous le jeu (clips sans facecam)
+GAME_H = 960  # sans facecam : jeu en grand au centre sur le jeu flouté (remplace la vidéo satisfaisante, 25/11)
 
 
-def render(src, dst, intervals, ass_path, cam, filler=None, teaser=None, zooms=()):
-    """filler : vidéo satisfaisante (sans son) mise sous le jeu quand il n'y a pas de facecam.
-    teaser : (début, fin) d'un extrait collé AVANT le clip (ouverture choc).
+def render(src, dst, intervals, ass_path, cam, teaser=None, zooms=()):
+    """teaser : (début, fin) d'un extrait collé AVANT le clip (ouverture choc).
     zooms : [(début, fin)] en temps final, où le jeu est zoomé d'un coup (punch-in)."""
     src = str(Path(src).resolve())
     sel = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in intervals)
@@ -358,7 +384,6 @@ def render(src, dst, intervals, ass_path, cam, filler=None, teaser=None, zooms=(
                f"[0:a]aselect='{sel}',asetpts=N/SR/TB[a0];")
     # Volume au niveau TikTok (-14 LUFS) : les streams sont souvent trop bas ou saturés.
     pre += "[a0]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a];"
-    sat = inputs.count("-i")  # index de la vidéo satisfaisante si on l'ajoute
 
     def punch(h):
         if not zooms:
@@ -374,21 +399,14 @@ def render(src, dst, intervals, ass_path, cam, filler=None, teaser=None, zooms=(
                   f"scale={W}:{CAM_H}:force_original_aspect_ratio=increase,crop={W}:{CAM_H}[cam];"
                   f"[g]crop=ih*{W}/{game_h}:ih,scale={W}:{game_h}{punch(game_h)}[game];"
                   f"[cam][game]vstack[v1];")
-    elif filler:
-        game_h = H - SAT_H
-        layout = (f"[v0]scale=-2:{game_h},crop={W}:{game_h}{punch(game_h)}[game];"
-                  f"[{sat}:v]scale={W}:{SAT_H}:force_original_aspect_ratio=increase,crop={W}:{SAT_H},fps=30,setsar=1[s];"
-                  f"[game][s]vstack=shortest=1[v1];")
     else:
         layout = (f"[v0]split[b][f];"
                   f"[b]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20[bg];"
-                  f"[f]scale={W}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2{punch(H)}[v1];")
+                  f"[f]scale=-2:{GAME_H},crop={W}:{GAME_H}{punch(GAME_H)}[fg];[bg][fg]overlay=0:(H-h)/2[v1];")
     # Nom de fichier seul + cwd : un chemin complet casse le filtre ass (":" sous Windows, espaces...)
     fonts = MODELS / "fonts"  # police fournie par le workflow (pas de paquet système)
     extra = f":fontsdir='{fonts.as_posix()}'" if fonts.is_dir() else ""
     graph = pre + layout + f"[v1]setsar=1,ass='{Path(ass_path).name}'{extra}[v]"
-    if filler and not cam:  # boucle + départ au hasard : la même vidéo ne commence pas toujours pareil
-        inputs += ["-stream_loop", "-1", "-ss", f"{random.uniform(0, 10):.1f}", "-i", str(Path(filler).resolve())]
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", graph,
                     "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-shortest",

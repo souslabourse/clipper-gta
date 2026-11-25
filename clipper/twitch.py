@@ -1,4 +1,5 @@
 """Récupération des clips les plus vus via l'API Twitch Helix."""
+import unicodedata
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
@@ -23,11 +24,30 @@ def _get(h, path, params):
     return r.json()["data"]
 
 
-def _clip(c, login, lang, boost=1.0):
+def plain(s):
+    """« Léa Élui » -> « lea elui » : comparaison sans accents ni majuscules."""
+    return "".join(ch for ch in unicodedata.normalize("NFD", s or "").lower() if unicodedata.category(ch) != "Mn")
+
+
+def has_vip(text, vip):
+    t = plain(text)
+    return any(plain(n) in t for n in vip)
+
+
+def virality(views, created_at, now=None):
+    """Vues par heure depuis la création du clip : un clip qui explose maintenant passe devant
+    un gros clip d'avant-hier. La 1re heure compte comme une heure pleine (évite 50 vues en 5 min = 600/h)."""
+    now = now or datetime.now(timezone.utc)
+    age_h = (now - datetime.fromisoformat(created_at.replace("Z", "+00:00"))).total_seconds() / 3600
+    return views / max(age_h, 1.0)
+
+
+def _clip(c, login, lang, boost=1.0, vip=()):
     return {"id": c["id"], "login": login, "name": c.get("broadcaster_name") or login, "lang": lang,
             "title": c["title"], "views": c["view_count"], "created_at": c["created_at"], "url": c["url"],
             "video_id": c.get("video_id") or None, "vod_offset": c.get("vod_offset"),
-            "duration": c["duration"], "score": c["view_count"] * boost}
+            "duration": c["duration"], "score": virality(c["view_count"], c["created_at"]) * boost,
+            "vip": int(has_vip(c["title"], vip))}
 
 
 def fetch_clips(cfg, streamers, removed=()):
@@ -38,6 +58,7 @@ def fetch_clips(cfg, streamers, removed=()):
     missing = [s["login"] for s in streamers if s["login"] not in users]
     since = (datetime.now(timezone.utc) - timedelta(hours=cfg["fetch"]["lookback_hours"])).strftime("%Y-%m-%dT%H:%M:%SZ")
     per = cfg["fetch"]["clips_per_streamer"]
+    vip = cfg.get("vip", [])
     out = []
     for s in streamers:
         if s["login"] not in users:
@@ -45,23 +66,25 @@ def fetch_clips(cfg, streamers, removed=()):
         data = _get(h, "clips", {"broadcaster_id": users[s["login"]], "first": 50, "started_at": since})
         mini = s.get("min_views", cfg["fetch"]["min_views"])
         gta = [c for c in data if c["game_id"] in games]
-        data = [c for c in gta if c["view_count"] >= mini]
+        data = [c for c in gta if c["view_count"] >= mini or has_vip(c["title"], vip)]  # invité : même peu vu
         if s["lang"] == "fr" or data:  # journal : pourquoi un streamer ne donne rien
             print(f"{s['login']} : {len(gta)} clips GTA récents, {len(data)} ≥ {mini} vues, "
                   f"max {max((c['view_count'] for c in gta), default=0)} vues")
         data.sort(key=lambda c: c["view_count"], reverse=True)
         boost = s.get("boost") or (cfg["rules"]["program_boost"] if s.get("program") else 1.0)
-        out += [_clip(c, s["login"], s["lang"], boost) for c in data[:per]]
+        data = data[:per] + [c for c in data[per:] if has_vip(c["title"], vip)]
+        out += [_clip(c, s["login"], s["lang"], boost, vip) for c in data]
     disc = cfg["fetch"].get("discover")  # {langue: vues mini} : meilleurs clips de toute la catégorie GTA
     if disc:
-        out += discover(h, games, since, disc, {s["login"] for s in streamers} | set(removed), per)
+        out += discover(h, games, since, disc, {s["login"] for s in streamers} | set(removed), per, vip)
     return out, missing
 
 
-def discover(h, games, since, min_views, skip, per):
+def discover(h, games, since, min_views, skip, per, vip=()):
     """Clips les plus vus de la catégorie, tous streamers confondus (hors liste et hors /remove)."""
     found = [c for g in games for c in _get(h, "clips", {"game_id": g, "first": 100, "started_at": since})]
-    found = [c for c in found if c.get("language") in min_views and c["view_count"] >= min_views[c["language"]]]
+    found = [c for c in found if c.get("language") in min_views
+             and (c["view_count"] >= min_views[c["language"]] or has_vip(c["title"], vip))]
     ids = sorted({c["broadcaster_id"] for c in found})
     logins = {}
     for i in range(0, len(ids), 100):
@@ -69,9 +92,9 @@ def discover(h, games, since, min_views, skip, per):
     out, count = [], Counter()
     for c in sorted(found, key=lambda c: c["view_count"], reverse=True):
         login = logins.get(c["broadcaster_id"])
-        if not login or login in skip or count[login] >= per:
+        if not login or login in skip or (count[login] >= per and not has_vip(c["title"], vip)):
             continue
         count[login] += 1
-        out.append(_clip(c, login, c["language"]))
+        out.append(_clip(c, login, c["language"], vip=vip))
     print(f"découverte : {len(out)} clips de {len(count)} streamers ({', '.join(count)})")
     return out
