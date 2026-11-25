@@ -98,10 +98,10 @@ jobs:
             || git -c user.name=clipper -c user.email=clipper@users.noreply.github.com commit -q -m state
           git push -q -f origin HEAD:data
 
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@v3
         if: always()
         with:
           path: data/out
 
-      - uses: actions/deploy-pages@v5
+      - uses: actions/deploy-pages@v4
         if: always()
