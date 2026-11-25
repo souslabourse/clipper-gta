@@ -91,7 +91,10 @@ def uses_claude():
 
 def _ask(model, prompt, temperature):
     if uses_claude():
-        return _claude(prompt)
+        try:
+            return _claude(prompt)
+        except ValueError as e:  # crédit épuisé, panne... : le modèle local prend le relais
+            print(f"titre : {e} -> Ollama", file=sys.stderr)
     r = requests.post("http://localhost:11434/api/generate", timeout=300, json={
         "model": model, "stream": False, "format": "json", "keep_alive": "30s",  # libère la RAM pour le rendu
         "options": {"temperature": temperature}, "prompt": prompt})

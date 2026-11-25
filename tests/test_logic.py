@@ -290,3 +290,18 @@ def test_priorite_apprise():
     b = learn.boosts_from(rows)
     assert b["anyme023"] > 1 and b["domingo"] == 0.3 and "michou" not in b   # 1 seule vidéo : pas jugé
     assert b["xqc"] == 1.0                                                   # seul en EN = sa propre médiane
+
+
+def test_claude_en_panne_relais_ollama(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setattr(text, "_claude", lambda prompt: (_ for _ in ()).throw(ValueError("crédit épuisé")))
+
+    class R:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"response": '{"title": "Squeezie ouvre la porte aux flics 💀", "hook": "Oups"}'}
+    monkeypatch.setattr(text.requests, "post", lambda *a, **k: R())
+    m = text.generate({"login": "squeezie", "name": "Squeezie", "title": "la porte"}, "porte", "fr", "qwen")
+    assert m["title"] == "Squeezie ouvre la porte aux flics 💀"
