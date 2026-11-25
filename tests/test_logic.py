@@ -254,3 +254,38 @@ def test_invite_publie_hors_creneau(tmp_path, monkeypatch):
                                                    "max_per_day": 6, "max_clip_age_hours": 24}}
     m.publish(cfg, con)
     assert [p[0] for p in posted] == ["lea"] and posted[0][1].startswith("vip:fr:")
+
+
+def test_titre_sans_le_nom_refuse():
+    assert text.bad_title("Lucien bloque la piscine 😂", [], name="Squeezie")
+    assert not text.bad_title("Squeezie bloque la piscine 😂", [], name="Squeezie")
+    assert not text.bad_title("caseoh gets stuck in a truck 🤔", [], name="caseoh_")
+
+
+def test_titres_avec_claude(monkeypatch):
+    import types
+    import anthropic
+    seen = {}
+
+    class Fake:
+        def __init__(self, *a, **k):
+            self.messages = self
+
+        def create(self, **kw):
+            seen.update(kw)
+            block = types.SimpleNamespace(type="text", text='```json\n{"title": "Squeezie ouvre la mauvaise porte 💀", '
+                                                             '"hook": "Fallait pas", "question": "Tu ouvrais ?", "tag": "porte"}\n```')
+            return types.SimpleNamespace(content=[types.SimpleNamespace(type="thinking"), block], stop_reason="end_turn")
+    monkeypatch.setattr(anthropic, "Anthropic", Fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    m = text.generate({"login": "squeezie", "name": "Squeezie", "title": "lol"}, "porte", "fr", "qwen")
+    assert m["title"] == "Squeezie ouvre la mauvaise porte 💀" and seen["model"] == "claude-haiku-5-5"
+
+
+def test_priorite_apprise():
+    from clipper import learn
+    rows = [("anyme023", "fr", v) for v in (5800, 200, 170)] + [("domingo", "fr", v) for v in (0, 5, 77)] \
+        + [("michou", "fr", 600)] + [("xqc", "en", v) for v in (230, 270, 0)]
+    b = learn.boosts_from(rows)
+    assert b["anyme023"] > 1 and b["domingo"] == 0.3 and "michou" not in b   # 1 seule vidéo : pas jugé
+    assert b["xqc"] == 1.0                                                   # seul en EN = sa propre médiane

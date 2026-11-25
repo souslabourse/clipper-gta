@@ -34,6 +34,7 @@ publish:
     fr: ["12:30", "15:00", "17:30", "19:00", "21:30", "23:00"]
     en: ["14:00", "16:00", "18:30", "21:00", "00:30", "03:00"]   # soirée US = nuit à Paris
   youtube_category: "20"    # Gaming
+  tiktok_profiles: {en: wastedreplay2, fr: wasted_gta6}   # relevé hebdo des vues (APIFY_TOKEN)
 
 style:
   font: DejaVu Sans
@@ -51,6 +52,7 @@ vip: ["lea elui", "leaelui"]
 # Liste autorisée. program = lien du programme de clipping (null si aucun).
 # facecam: auto (détection), none, ou [x, y, largeur, hauteur] en fractions de l'image.
 # min_views (optionnel) : remplace fetch.min_views pour ce streamer.
+# own_subs (optionnel) : true si le streamer incruste déjà ses sous-titres (on n'en ajoute pas).
 # boost (optionnel) : multiplie la priorité (analyse TikTok du 25/11 : Anyme023/Michou/Squeezie marchent, Domingo non).
 streamers:
   # --- EN, avec programme ---
@@ -75,7 +77,7 @@ streamers:
   # --- FR, sans programme connu ---
   - {login: jltomy, lang: fr, program: null}
   - {login: domingo, lang: fr, program: null, boost: 0.5}
-  - {login: squeezie, lang: fr, program: null, boost: 2}
+  - {login: squeezie, lang: fr, program: null, boost: 2, own_subs: true}   # sous-titres déjà dans son stream
   - {login: michou, lang: fr, program: null, boost: 2}
   - {login: anyme023, lang: fr, program: null, boost: 2}
   - {login: gotaga, lang: fr, program: null}

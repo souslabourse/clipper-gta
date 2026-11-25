@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from . import buffer, edit, text, twitch
+from . import buffer, edit, learn, text, twitch
 from .core import DATA, active_streamers, checkpoint, db, env, get_state, load_config, notify, set_state
 
 
@@ -21,7 +21,9 @@ def run(cfg, con):
     if missing and missing != get_state(con, "missing"):
         notify(f"⚠️ Logins Twitch introuvables (à corriger dans config.yaml) : {', '.join(missing)}")
         set_state(con, "missing", missing)
+    auto = get_state(con, "auto_boost", {})  # appris chaque lundi sur nos propres vues TikTok
     for c in clips:
+        c["score"] *= auto.get(c["login"], 1.0)
         cols = ",".join(c)
         con.execute(f"INSERT OR IGNORE INTO clips ({cols}) VALUES ({','.join('?' * len(c))})", tuple(c.values()))
         con.execute("UPDATE clips SET views=?, score=?, vip=MAX(COALESCE(vip,0),?) WHERE id=?",
@@ -89,6 +91,8 @@ def process(cfg, con, streamers):
             out = DATA / "out" / f"{secrets.token_urlsafe(12)}.mp4"  # nom imprévisible : URL publique
             out.parent.mkdir(parents=True, exist_ok=True)
             ass = raw.with_suffix(".ass")
+            if streamers.get(clip["login"], {}).get("own_subs"):
+                moved = []  # le streamer incruste déjà ses sous-titres : on n'en ajoute pas par-dessus
             ass.write_text(edit.build_ass(moved, meta["hook"], f"twitch.tv/{clip['login']}", total, cfg["style"],
                                           lead, meta.pop("rewind")), encoding="utf-8")
             edit.render(raw, out, iv, ass, cam, teaser, zooms)
@@ -302,6 +306,8 @@ def tick(cfg, con):
     if now.hour == 23 and get_state(con, "recap_day") != f"{now:%Y-%m-%d}":
         set_state(con, "recap_day", f"{now:%Y-%m-%d}")
         steps.append(("récap", recap))
+    if learn.due(con, now):
+        steps.append(("apprentissage", learn.learn))
     failed = False
     for name, fn in steps:
         try:
@@ -349,9 +355,10 @@ def main():
             for c in buffer.channels(os.environ[f"CLIPPER_BUFFER_KEY_{lang.upper()}"]):
                 print(lang, c["service"], c["id"], c["name"])
         return
-    fn = {"tick": tick, "test": test, "run": run, "publish": publish, "recap": recap, "redo": redo}.get(cmd)
+    fn = {"tick": tick, "test": test, "run": run, "publish": publish, "recap": recap, "redo": redo,
+          "learn": learn.learn}.get(cmd)
     if not fn:
-        sys.exit("usage : python -m clipper tick|test|run|publish|recap|channels|redo")
+        sys.exit("usage : python -m clipper tick|test|run|publish|recap|channels|redo|learn")
     con = db()
     try:
         fn(cfg, con)

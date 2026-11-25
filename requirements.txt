@@ -4,4 +4,5 @@ numpy>=1.26
 requests>=2.31
 PyYAML>=6.0
 yt-dlp
+anthropic>=2   # titres avec Claude Haiku (si ANTHROPIC_API_KEY est défini)
 sherpa-onnx>=1.12   # séparation des voix (streamer / autres)

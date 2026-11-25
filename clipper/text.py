@@ -1,5 +1,7 @@
-"""Accroche, titre et hashtags générés en local par Ollama (aucun token payant)."""
+"""Accroche, titre et hashtags : Claude Haiku si ANTHROPIC_API_KEY est défini (bien meilleur en français,
+~0,3 $/mois), sinon Ollama en local (gratuit)."""
 import json
+import os
 import re
 
 import requests
@@ -52,13 +54,43 @@ def clean_twitch_title(t):
 HARD = ["reaction when", "réaction de", "wzbot", "autoclip"]  # jamais, même en dernier recours
 
 
-def bad_title(title, recent, strict=True):
+def _has(low, b):
+    """Mot entier (« truc » ne bloque pas « truck ») ; la ponctuation (« ! ») partout."""
+    return re.search(rf"(?<!\w){re.escape(b)}(?!\w)", low) is not None if b[0].isalnum() else b in low
+
+
+def bad_title(title, recent, strict=True, name=""):
     low = title.lower()
-    return (not title or len(title) > 80 or any(b in low for b in (BANNED if strict else HARD))
-            or low in {r.lower() for r in recent})
+    return (not title or len(title) > 80 or any(_has(low, b) for b in (BANNED if strict else HARD))
+            or low in {r.lower() for r in recent}
+            or (strict and name and name.lower().rstrip("_") not in low))  # le nom fait cliquer les fans
+
+
+CLAUDE = "claude-haiku-5-5"
+
+
+def _claude(prompt):
+    import anthropic
+    try:
+        r = anthropic.Anthropic().messages.create(
+            model=CLAUDE, max_tokens=2000, output_config={"effort": "low"},
+            messages=[{"role": "user", "content": prompt}])
+    except anthropic.APIError as e:
+        raise ValueError(f"Claude : {e}") from e
+    text = "".join(b.text for b in r.content if b.type == "text")
+    m = re.search(r"\{.*\}", text, re.S)  # le JSON, même entouré de texte ou de ```json
+    if not m:
+        raise ValueError(f"Claude : pas de JSON ({r.stop_reason})")
+    return json.loads(m.group(0))
+
+
+def uses_claude():
+    return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
 def _ask(model, prompt, temperature):
+    if uses_claude():
+        return _claude(prompt)
     r = requests.post("http://localhost:11434/api/generate", timeout=300, json={
         "model": model, "stream": False, "format": "json", "keep_alive": "30s",  # libère la RAM pour le rendu
         "options": {"temperature": temperature}, "prompt": prompt})
@@ -74,11 +106,11 @@ def generate(clip, transcript, lang, model, recent=()):
     for temperature in (0.7, 0.9, 1.0):  # on redemande si le titre est interdit ou déjà publié
         try:
             data = _ask(model, prompt, temperature)
-            if lang == "fr" and data.get("title"):
+            if lang == "fr" and data.get("title") and not uses_claude():  # qwen fait des fautes, pas Claude
                 data["title"] = _ask(model, FIX_FR.format(title=data["title"]), 0.1).get("title") or data["title"]
         except (requests.RequestException, ValueError, KeyError):
             data = {}
-        if not bad_title(str(data.get("title") or ""), recent):
+        if not bad_title(str(data.get("title") or ""), recent, name=name):
             break
         if usable is None and not bad_title(str(data.get("title") or ""), recent, strict=False):
             usable = data  # un mot faible (« moment »…) vaut mieux que le titre Twitch brut (« lol »)

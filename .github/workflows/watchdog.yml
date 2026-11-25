@@ -1,0 +1,37 @@
+# Gardien : prévient sur Telegram si le passage horaire ne réussit plus.
+# Séparé du passage principal : quand la machine du passage meurt (panne du 23-25/11), elle ne peut pas prévenir.
+name: watchdog
+
+on:
+  schedule:
+    - cron: "40 */3 * * *"   # toutes les 3 h
+  workflow_dispatch:
+
+permissions:
+  actions: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Vérifier les derniers passages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          last=$(gh run list -R "$REPO" --workflow clipper.yml --status success -L 1 --json updatedAt -q '.[0].updatedAt')
+          fails=$(gh run list -R "$REPO" --workflow clipper.yml -L 3 --json conclusion -q '[.[] | select(.conclusion=="failure" or .conclusion=="cancelled")] | length')
+          age=$(( ( $(date +%s) - $(date -d "${last:-1970-01-01}" +%s) ) / 3600 ))
+          echo "dernier passage réussi : ${last:-jamais} (il y a ${age} h) ; échecs sur les 3 derniers : ${fails}"
+          msg=""
+          [ "$age" -ge 3 ] && msg="🚨 Clipper : aucun passage réussi depuis ${age} h."
+          [ "$fails" -ge 3 ] && msg="🚨 Clipper : les 3 derniers passages ont échoué."
+          if [ -n "$msg" ]; then
+            curl -fsS "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=${msg} https://github.com/${REPO}/actions" > /dev/null
+            echo "$msg"
+          fi
