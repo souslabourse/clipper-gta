@@ -85,8 +85,11 @@ def _claude(prompt):
     return json.loads(m.group(0))
 
 
+_claude_off = False  # Claude a échoué pendant ce passage (ex. pas de crédit) : on ne le réessaie plus
+
+
 def uses_claude():
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return bool(os.environ.get("ANTHROPIC_API_KEY")) and not _claude_off
 
 
 def _ask(model, prompt, temperature):
@@ -94,7 +97,9 @@ def _ask(model, prompt, temperature):
         try:
             return _claude(prompt)
         except ValueError as e:  # crédit épuisé, panne... : le modèle local prend le relais
-            print(f"titre : {e} -> Ollama", file=sys.stderr)
+            global _claude_off
+            _claude_off = True
+            print(f"titre : {e} -> Ollama pour le reste du passage", file=sys.stderr)
     r = requests.post("http://localhost:11434/api/generate", timeout=300, json={
         "model": model, "stream": False, "format": "json", "keep_alive": "30s",  # libère la RAM pour le rendu
         "options": {"temperature": temperature}, "prompt": prompt})

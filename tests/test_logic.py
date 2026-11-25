@@ -303,5 +303,7 @@ def test_claude_en_panne_relais_ollama(monkeypatch):
         def json(self):
             return {"response": '{"title": "Squeezie ouvre la porte aux flics 💀", "hook": "Oups"}'}
     monkeypatch.setattr(text.requests, "post", lambda *a, **k: R())
+    monkeypatch.setattr(text, "_claude_off", False)
     m = text.generate({"login": "squeezie", "name": "Squeezie", "title": "la porte"}, "porte", "fr", "qwen")
     assert m["title"] == "Squeezie ouvre la porte aux flics 💀"
+    assert not text.uses_claude()   # plus réessayé pendant ce passage
