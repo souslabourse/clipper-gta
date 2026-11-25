@@ -205,3 +205,11 @@ def test_retour_en_arriere_apres_ouverture():
     ass = edit.build_ass([], "regarde", "c", 10.0, {"font": "F", "font_size": 90, "words_per_group": 3}, 1.5,
                          "◀◀ quelques secondes avant")
     assert "◀◀ QUELQUES SECONDES AVANT" in ass
+
+
+def test_titre_faible_plutot_que_titre_twitch(monkeypatch):
+    answers = iter([{"title": "Kai a un moment de panique 😭"}, {"title": "Kai reaction when he sees it"},
+                    {"title": "Kai, un moment fou 😭"}])
+    monkeypatch.setattr(text, "_ask", lambda *a: next(answers))
+    m = text.generate({"login": "kaicenat", "name": "KaiCenat", "title": "lol"}, "x", "en", "m")
+    assert m["title"] == "Kai a un moment de panique 😭"

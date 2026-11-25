@@ -27,8 +27,8 @@ def run(cfg, con):
         con.execute(f"INSERT OR IGNORE INTO clips ({cols}) VALUES ({','.join('?' * len(c))})", tuple(c.values()))
         con.execute("UPDATE clips SET views=?, score=? WHERE id=?", (c["views"], c["score"], c["id"]))
     con.commit()
+    cleanup(cfg, con)  # avant le montage : des clips périmés ne doivent pas compter dans le stock
     process(cfg, con, {s["login"]: s for s in streamers})
-    cleanup(cfg, con)
 
 
 def process(cfg, con, streamers):

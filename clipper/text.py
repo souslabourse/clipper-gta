@@ -49,9 +49,12 @@ def clean_twitch_title(t):
     return re.sub(r"^\s*\S*bot\b[^:]*:\s*", "", t or "", flags=re.I).strip()
 
 
-def bad_title(title, recent):
+HARD = ["reaction when", "réaction de", "wzbot", "autoclip"]  # jamais, même en dernier recours
+
+
+def bad_title(title, recent, strict=True):
     low = title.lower()
-    return (not title or len(title) > 80 or any(b in low for b in BANNED)
+    return (not title or len(title) > 80 or any(b in low for b in (BANNED if strict else HARD))
             or low in {r.lower() for r in recent})
 
 
@@ -67,7 +70,7 @@ def generate(clip, transcript, lang, model, recent=()):
     name = clip.get("name") or clip["login"]
     prompt = PROMPT[lang].format(login=name, title=clean_twitch_title(clip["title"]), transcript=transcript[:1500],
                                  recent=" | ".join(recent[:12]) or "aucun")
-    data = {}
+    data, usable = {}, None
     for temperature in (0.7, 0.9, 1.0):  # on redemande si le titre est interdit ou déjà publié
         try:
             data = _ask(model, prompt, temperature)
@@ -77,8 +80,10 @@ def generate(clip, transcript, lang, model, recent=()):
             data = {}
         if not bad_title(str(data.get("title") or ""), recent):
             break
+        if usable is None and not bad_title(str(data.get("title") or ""), recent, strict=False):
+            usable = data  # un mot faible (« moment »…) vaut mieux que le titre Twitch brut (« lol »)
     else:
-        data.pop("title", None)
+        data = usable or {k: v for k, v in data.items() if k != "title"}
     return finalize(data, clip, lang)
 
 
