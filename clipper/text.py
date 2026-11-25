@@ -5,61 +5,93 @@ import re
 import requests
 
 PROMPT = {
-    "fr": "Tu es un expert des titres TikTok viraux. Tu écris le titre d'un clip GTA, en français familier, "
-          "comme un ado qui partage un moment de dingue à ses potes.\n"
+    "fr": "Tu écris le titre TikTok d'un clip GTA 6, en français familier mais SANS faute d'orthographe.\n"
           "Streamer : {login}. Titre Twitch du clip : \"{title}\". Ce qui est dit : \"{transcript}\".\n"
-          "Choisis LA formule qui colle le mieux au clip :\n"
-          "- suspense : \"{login} pensait que c'était un PNJ… 💀\"\n"
-          "- réaction : \"La réaction de {login} quand il voit le prix 😭\"\n"
-          "- superlatif : \"{login} a trouvé le pire bug de GTA 6 😂\"\n"
-          "- citation choc tirée de ce qui est dit : \"« Me laisse pas là frérot » 😭 ({login})\"\n"
-          "- POV : \"POV : t'es le passager de {login} 💀\"\n"
-          "Règles : une vraie phrase avec un verbe (jamais du style télégraphique comme \"bloque voitures\"), "
-          "qui dit ce qui se passe de façon concrète et crée une émotion ou une question. "
-          "Le nom {login} apparaît une fois. 1 ou 2 emojis à la fin (😭💀😂🔥🤯). 70 caractères max. "
-          "Interdit : \"incroyable\", \"épique\", \"moment\", les points d'exclamation, inventer ce qui n'est pas dans le clip.\n"
-          "L'accroche (affichée 2 s au début de la vidéo) fait 3 à 6 mots, pose une question ou une tension "
-          "sans dévoiler la fin (ex. \"Il aurait pas dû faire ça\", \"Attends la fin…\").\n"
-          "Réponds uniquement en JSON : {{\"hook\": \"...\", \"title\": \"...\", \"hashtags\": [\"...\", \"...\", \"...\"]}}",
-    "en": "You are an expert at viral TikTok titles. You write the title of a GTA clip in casual US English, "
-          "like a teen sharing an insane moment with friends.\n"
+          "Le titre raconte ce qui se passe dans CE clip, avec un détail concret tiré de ce qui est dit "
+          "(un objet, un lieu, une personne, une phrase), et donne envie de voir la fin sans la dévoiler.\n"
+          "Formes possibles (choisis celle qui colle, n'invente aucun détail) : une situation qui tourne mal, "
+          "une citation choc entre « », une question au spectateur, « POV : ... ».\n"
+          "Règles : une phrase complète avec un verbe, le nom {login} une seule fois, jamais « il » ou « elle » "
+          "pour parler du streamer, 1 ou 2 emojis à la fin, 70 caractères max. "
+          "Mots interdits : réaction, incroyable, épique, moment, dingue, truc, et pas de point d'exclamation.\n"
+          "Titres déjà publiés (n'en reprends ni la forme ni les mots) : {recent}\n"
+          "hook : 3 à 6 mots affichés en gros au début, une tension sans dévoiler la fin.\n"
+          "question : une question courte aux spectateurs sur ce clip, pour qu'ils répondent en commentaire.\n"
+          "tag : un seul hashtag sur le sujet du clip (sans #).\n"
+          "Réponds uniquement en JSON : {{\"hook\": \"...\", \"title\": \"...\", \"question\": \"...\", \"tag\": \"...\"}}",
+    "en": "You write the TikTok title of a GTA 6 clip in casual but correct US English.\n"
           "Streamer: {login}. Twitch clip title: \"{title}\". What is said: \"{transcript}\".\n"
-          "Pick THE formula that fits the clip best:\n"
-          "- suspense: \"{login} thought it was just an NPC… 💀\"\n"
-          "- reaction: \"{login}'s reaction when he sees the price 😭\"\n"
-          "- superlative: \"{login} found the worst glitch in GTA 6 😂\"\n"
-          "- shocking quote from what is said: \"'Bro don't leave me here' 😭 ({login})\"\n"
-          "- POV: \"POV: you're riding with {login} 💀\"\n"
-          "Rules: a real sentence with a verb (never telegraphic like \"blocks cars\"), "
-          "saying concretely what happens and creating an emotion or a question. "
-          "The name {login} appears once. 1-2 emojis at the end (😭💀😂🔥🤯). 70 chars max. "
-          "Forbidden: \"insane\", \"epic\", \"moment\", exclamation marks, making up things not in the clip.\n"
-          "The hook (shown for 2 s at the start of the video) is 3-6 words, raises a question or tension "
-          "without spoiling the ending (e.g. \"He should NOT have done that\", \"Wait for the end…\").\n"
-          "Answer only in JSON: {{\"hook\": \"...\", \"title\": \"...\", \"hashtags\": [\"...\", \"...\", \"...\"]}}",
+          "The title tells what happens in THIS clip, with one concrete detail taken from what is said "
+          "(an object, a place, a person, a line), and makes people want to see the ending without spoiling it.\n"
+          "Possible shapes (pick the one that fits, never invent details): a situation going wrong, "
+          "a shocking quote in quotes, a question to the viewer, \"POV: ...\".\n"
+          "Rules: a full sentence with a verb, the name {login} exactly once, never \"he\" or \"she\" "
+          "for the streamer, 1-2 emojis at the end, 70 chars max. "
+          "Forbidden words: reaction, insane, epic, moment, and no exclamation marks.\n"
+          "Already posted titles (reuse neither their shape nor their words): {recent}\n"
+          "hook: 3-6 words shown big at the start, tension without spoiling.\n"
+          "question: a short question to viewers about this clip, so they answer in the comments.\n"
+          "tag: one hashtag about the clip's topic (no #).\n"
+          "Answer only in JSON: {{\"hook\": \"...\", \"title\": \"...\", \"question\": \"...\", \"tag\": \"...\"}}",
 }
 
+FIX_FR = ("Corrige uniquement l'orthographe et la grammaire de ce titre TikTok, sans changer le sens, "
+          "le ton ni les emojis : \"{title}\". Réponds uniquement en JSON : {{\"title\": \"...\"}}")
 
-def generate(clip, transcript, lang, model):
-    try:
-        r = requests.post("http://localhost:11434/api/generate", timeout=300, json={
-            "model": model, "stream": False, "format": "json", "options": {"temperature": 0.7},
-            "prompt": PROMPT[lang].format(login=clip.get("name") or clip["login"], title=clip["title"], transcript=transcript[:1500])})
-        r.raise_for_status()
-        data = json.loads(r.json()["response"])
-    except (requests.RequestException, ValueError, KeyError):
-        data = {}
+BANNED = ["reaction", "réaction", "incroyable", "épique", "epique", "insane", "epic", "moment", "dingue",
+          "truc", "wzbot", "autoclip", "part1", "!"]
+BAD_TAGS = ("gtarp", "gta5", "leak", "fyp", "viral", "tiktok")
+REWIND = {"fr": "◀◀ quelques secondes avant", "en": "◀◀ a few seconds earlier"}
+
+
+def clean_twitch_title(t):
+    """« WzBot AutoCLIP : X fait Y » -> « X fait Y » : les bots de clips signent leurs titres."""
+    return re.sub(r"^\s*\S*bot\b[^:]*:\s*", "", t or "", flags=re.I).strip()
+
+
+def bad_title(title, recent):
+    low = title.lower()
+    return (not title or len(title) > 80 or any(b in low for b in BANNED)
+            or low in {r.lower() for r in recent})
+
+
+def _ask(model, prompt, temperature):
+    r = requests.post("http://localhost:11434/api/generate", timeout=300, json={
+        "model": model, "stream": False, "format": "json", "keep_alive": "30s",  # libère la RAM pour le rendu
+        "options": {"temperature": temperature}, "prompt": prompt})
+    r.raise_for_status()
+    return json.loads(r.json()["response"])
+
+
+def generate(clip, transcript, lang, model, recent=()):
+    name = clip.get("name") or clip["login"]
+    prompt = PROMPT[lang].format(login=name, title=clean_twitch_title(clip["title"]), transcript=transcript[:1500],
+                                 recent=" | ".join(recent[:12]) or "aucun")
+    data = {}
+    for temperature in (0.7, 0.9, 1.0):  # on redemande si le titre est interdit ou déjà publié
+        try:
+            data = _ask(model, prompt, temperature)
+            if lang == "fr" and data.get("title"):
+                data["title"] = _ask(model, FIX_FR.format(title=data["title"]), 0.1).get("title") or data["title"]
+        except (requests.RequestException, ValueError, KeyError):
+            data = {}
+        if not bad_title(str(data.get("title") or ""), recent):
+            break
+    else:
+        data.pop("title", None)
     return finalize(data, clip, lang)
 
 
 def finalize(data, clip, lang):
     """Valide la sortie du modèle et retombe sur le titre Twitch si besoin."""
-    login = clip["login"]
-    title = str(data.get("title") or f"{clip.get('name') or login}: {clip['title']}")[:90]
-    hook = str(data.get("hook") or clip["title"])[:40]
-    tags = [re.sub(r"[^\w]", "", str(t)).lower() for t in (data.get("hashtags") or [])]
-    base = ["gta6", "gtarp" if lang == "en" else "gtarpfr", login]
-    tags = list(dict.fromkeys(base + [t for t in tags if t]))[:5]
+    login, name = clip["login"], clip.get("name") or clip["login"]
+    title = str(data.get("title") or f"{name} : {clean_twitch_title(clip['title'])} 💀")[:90]
+    hook = str(data.get("hook") or clean_twitch_title(clip["title"]))[:40]
+    tag = re.sub(r"[^\w]", "", str(data.get("tag") or "")).lower()
+    tags = ["gta6", "gtavi", login.lower()] + ([tag] if tag and not any(b in tag for b in BAD_TAGS) else [])
+    tags = list(dict.fromkeys(tags))
+    question = str(data.get("question") or "").strip()
     credit = "Crédit" if lang == "fr" else "Credit"
-    description = f"{title}\n\n🎥 {credit} : twitch.tv/{login}\n\n" + " ".join("#" + t for t in tags)
-    return {"hook": hook, "title": title, "description": description, "hashtags": tags}
+    description = (f"{title}\n\n" + (f"{question}\n\n" if question else "")
+                   + f"🎥 {credit} : twitch.tv/{login}\n\n" + " ".join("#" + t for t in tags))
+    return {"hook": hook, "title": title, "description": description, "hashtags": tags, "rewind": REWIND[lang]}

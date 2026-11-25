@@ -50,7 +50,7 @@ def fetch_clips(cfg, streamers, removed=()):
             print(f"{s['login']} : {len(gta)} clips GTA récents, {len(data)} ≥ {mini} vues, "
                   f"max {max((c['view_count'] for c in gta), default=0)} vues")
         data.sort(key=lambda c: c["view_count"], reverse=True)
-        boost = cfg["rules"]["program_boost"] if s.get("program") else 1.0
+        boost = s.get("boost") or (cfg["rules"]["program_boost"] if s.get("program") else 1.0)
         out += [_clip(c, s["login"], s["lang"], boost) for c in data[:per]]
     disc = cfg["fetch"].get("discover")  # {langue: vues mini} : meilleurs clips de toute la catégorie GTA
     if disc:

@@ -67,9 +67,10 @@ def test_textes_de_secours_et_hashtags():
     clip = {"login": "kaicenat", "title": "LMAO"}
     m = text.finalize({}, clip, "en")
     assert m["title"].startswith("kaicenat") and "twitch.tv/kaicenat" in m["description"]
-    m = text.finalize({"title": "X", "hook": "Y", "hashtags": ["#GTA6", "funny", "a", "b", "c"]}, clip, "fr")
-    assert m["hashtags"][:3] == ["gta6", "gtarpfr", "kaicenat"] and len(m["hashtags"]) == 5
-    assert "Crédit" in m["description"]
+    m = text.finalize({"title": "X", "hook": "Y", "tag": "#Police", "question": "Il aurait fait quoi ?"}, clip, "fr")
+    assert m["hashtags"] == ["gta6", "gtavi", "kaicenat", "police"]
+    assert "Crédit" in m["description"] and "Il aurait fait quoi ?" in m["description"]
+    assert text.finalize({"tag": "gtarpfr"}, clip, "fr")["hashtags"] == ["gta6", "gtavi", "kaicenat"]
     assert text.finalize({}, {**clip, "name": "KaiCenat"}, "en")["title"].startswith("KaiCenat")
 
 
@@ -166,3 +167,41 @@ def test_creneaux_semaine_de_sortie():
         mins = sorted(int(h) * 60 + int(m) for h, m in (x.split(":") for x in slots))
         # au moins 1 h 30 entre deux créneaux : un passage horaire en retard ne publie pas deux fois d'affilée
         assert all(b - a >= 90 for a, b in zip(mins, mins[1:]))
+
+
+def test_titres_interdits_et_bots():
+    assert text.clean_twitch_title("WzBot AutoCLIP : MasterSnakou fait flipper") == "MasterSnakou fait flipper"
+    assert text.clean_twitch_title("LMAO") == "LMAO"
+    assert text.bad_title("Ludwig's reaction when he sees the price 😭", [])
+    assert text.bad_title("Michou fait un truc dingue 💀", [])
+    assert text.bad_title("Squeezie déconseille cette porte 💀", ["squeezie déconseille cette porte 💀"])
+    assert not text.bad_title("Anyme023 libère Léa à minuit 😱", [])
+
+
+def test_meme_moment_et_titres_recents(tmp_path, monkeypatch):
+    from clipper.__main__ import recent_titles, same_moment
+    monkeypatch.setattr("clipper.core.DATA", tmp_path)
+    con = db()
+    con.executemany("INSERT INTO clips (id, lang, video_id, vod_offset, status, meta, created_at) VALUES (?,?,?,?,?,?,?)", [
+        ("a", "fr", "v1", 100, "posted", '{"title": "T1"}', "2026-11-24T10:00:00Z"),
+        ("b", "fr", "v1", 130, "new", None, "2026-11-24T11:00:00Z"),
+        ("c", "fr", "v1", 400, "new", None, "2026-11-24T11:00:00Z"),
+        ("d", "fr", None, None, "new", None, "2026-11-24T11:00:00Z")])
+    row = lambda i: dict(con.execute("SELECT * FROM clips WHERE id=?", (i,)).fetchone())
+    assert same_moment(con, row("b")) and not same_moment(con, row("c")) and not same_moment(con, row("d"))
+    assert recent_titles(con, "fr") == ["T1"] and recent_titles(con, "en") == []
+
+
+def test_zooms_sur_les_pics():
+    energy = np.full(400, 0.1)
+    energy[100:105] = 5.0      # 10 s
+    energy[120:125] = 4.0      # 12 s : trop près du premier
+    energy[300:305] = 3.0      # 30 s
+    t = edit.punch_times(energy, 0.1, [(0.0, 40.0)], n=3)
+    assert len(t) == 2 and 9.5 <= t[0] <= 11 and 29.5 <= t[1] <= 31
+
+
+def test_retour_en_arriere_apres_ouverture():
+    ass = edit.build_ass([], "regarde", "c", 10.0, {"font": "F", "font_size": 90, "words_per_group": 3}, 1.5,
+                         "◀◀ quelques secondes avant")
+    assert "◀◀ QUELQUES SECONDES AVANT" in ass

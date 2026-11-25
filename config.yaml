@@ -28,7 +28,7 @@ rules:
 publish:
   max_per_day: 6            # par langue, par plateforme (semaine de sortie de GTA 6)
   window_minutes: 90        # GitHub lance le passage horaire avec du retard : large tolérance
-  max_clip_age_hours: 48
+  max_clip_age_hours: 24     # clips frais seulement (montés et publiés), avant les autres clippeurs
   slots:                    # heure de Paris
     fr: ["12:30", "15:00", "17:30", "19:00", "21:30", "23:00"]
     en: ["14:00", "16:00", "18:30", "21:00", "00:30", "03:00"]   # soirée US = nuit à Paris
@@ -46,6 +46,7 @@ models:
 # Liste autorisée. program = lien du programme de clipping (null si aucun).
 # facecam: auto (détection), none, ou [x, y, largeur, hauteur] en fractions de l'image.
 # min_views (optionnel) : remplace fetch.min_views pour ce streamer.
+# boost (optionnel) : multiplie la priorité (analyse TikTok du 25/11 : Anyme023/Michou/Squeezie marchent, Domingo non).
 streamers:
   # --- EN, avec programme ---
   - {login: kaicenat, lang: en, program: "https://www.clyper.io/clipping-programs/kai-cenat"}
@@ -65,9 +66,11 @@ streamers:
   # N3on est sur Kick : pas couvert par l'API Twitch (v2).
   # --- FR, sans programme connu ---
   - {login: jltomy, lang: fr, program: null}
-  - {login: domingo, lang: fr, program: null}
-  - {login: squeezie, lang: fr, program: null}
-  - {login: michou, lang: fr, program: null}
+  - {login: domingo, lang: fr, program: null, boost: 0.5}
+  - {login: squeezie, lang: fr, program: null, boost: 2}
+  - {login: michou, lang: fr, program: null, boost: 2}
+  - {login: anyme023, lang: fr, program: null, boost: 2}
+  - {login: gotaga, lang: fr, program: null}
   - {login: aminematue, lang: fr, program: null}
   - {login: flamby, lang: fr, program: null}
   - {login: finnyzyy, lang: fr, program: null, min_views: 10}   # joue à GTA 6 en avance (18/11)

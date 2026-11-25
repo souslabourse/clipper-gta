@@ -2,6 +2,7 @@
 import json
 import os
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import requests
@@ -69,3 +70,17 @@ def notify(text):
                       json={"chat_id": chat, "text": text[:4000]}, timeout=15)
     except requests.RequestException as e:
         print("[telegram] échec :", e)
+
+
+def checkpoint(con):
+    """Sauvegarde l'état sur la branche data tout de suite (GitHub Actions). Si la machine meurt ensuite,
+    on sait ce qui a été publié et quel clip était en cours : pas de doublon, pas de boucle de pannes."""
+    con.commit()
+    if not (DATA / ".git").exists():
+        return
+    g = ["git", "-C", str(DATA), "-c", "user.name=clipper", "-c", "user.email=clipper@users.noreply.github.com"]
+    subprocess.run(g + ["add", "-A"], check=True)
+    if subprocess.run(g + ["commit", "-q", "--amend", "-m", "state"]).returncode:
+        subprocess.run(g + ["commit", "-q", "-m", "state"])
+    if subprocess.run(g + ["push", "-q", "-f", "origin", "HEAD:data"], timeout=300).returncode:
+        print("checkpoint : push échoué", flush=True)

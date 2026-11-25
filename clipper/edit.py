@@ -165,6 +165,20 @@ def peak_time(energy, hop_s, intervals, skip=4.0, win=1.0):
     return t_best
 
 
+def punch_times(energy, hop_s, intervals, n=3, gap=6.0, skip=4.0):
+    """Les n moments les plus forts (espacés d'au moins `gap` s) : zooms « punch-in » du montage."""
+    out, loud = [], 2 * float(np.median(energy)) if len(energy) else 0.0  # un pic = 2× le niveau habituel
+    for _ in range(n):
+        masked = energy.copy()
+        for t in out:
+            masked[max(0, int((t - gap) / hop_s)): int((t + gap) / hop_s)] = 0
+        t = peak_time(masked, hop_s, intervals, skip)
+        if t is None or masked[min(len(masked) - 1, int(t / hop_s))] < loud:
+            break
+        out.append(t)
+    return sorted(out)
+
+
 def remap(t, intervals):
     """Temps d'origine -> temps dans la vidéo coupée (None si t tombe dans une coupe)."""
     acc = 0.0
@@ -186,9 +200,10 @@ def _esc(s):
     return s.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
-def build_ass(words, hook, credit, total, style, teaser=0.0):
+def build_ass(words, hook, credit, total, style, teaser=0.0, rewind=""):
     """Mots par groupes, mot actif surligné en jaune ; accroche en haut ; crédit en bas.
-    Un mot peut porter un 4e champ : faux = autre voix que le streamer, écrite plus petit."""
+    Un mot peut porter un 4e champ : faux = autre voix que le streamer, écrite plus petit.
+    rewind : petit texte « retour en arrière » affiché après l'ouverture choc."""
     f, size = style["font"], style["font_size"]
     lines = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}", "",
@@ -206,6 +221,8 @@ def build_ass(words, hook, credit, total, style, teaser=0.0):
     if hook:
         if teaser:  # 1re image = couverture TikTok : moment fort + accroche en gros au centre
             lines.append(f"Dialogue: 2,{_ts(0)},{_ts(teaser + 0.6)},Big,,0,0,0,,{_esc(hook.upper())}")
+            if rewind:
+                lines.append(f"Dialogue: 2,{_ts(teaser + 0.6)},{_ts(teaser + 2.0)},Hook,,0,0,0,,{_esc(rewind.upper())}")
         else:
             lines.append(f"Dialogue: 2,{_ts(0)},{_ts(min(total, 2.5))},Hook,,0,0,0,,{_esc(hook.upper())}")
     lines.append(f"Dialogue: 1,{_ts(0)},{_ts(total)},Credit,,0,0,0,,{_esc(credit)}")
@@ -317,44 +334,60 @@ def cam_edges(gx, gy, face, fw, fh, strong=12, need=0.75):
 SAT_H = 770  # bande de vidéo satisfaisante sous le jeu (clips sans facecam)
 
 
-def render(src, dst, intervals, ass_path, cam, filler=None, teaser=None):
+def render(src, dst, intervals, ass_path, cam, filler=None, teaser=None, zooms=()):
     """filler : vidéo satisfaisante (sans son) mise sous le jeu quand il n'y a pas de facecam.
-    teaser : (début, fin) d'un extrait collé AVANT le clip (ouverture choc)."""
+    teaser : (début, fin) d'un extrait collé AVANT le clip (ouverture choc).
+    zooms : [(début, fin)] en temps final, où le jeu est zoomé d'un coup (punch-in)."""
+    src = str(Path(src).resolve())
     sel = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in intervals)
+    inputs = ["-i", src]
     if teaser:
+        # 2e lecture du fichier pour l'extrait : un split du même flux garderait en mémoire toutes les
+        # images jusqu'au pic (plus de 10 Go sur un clip 1080p60) et faisait tuer la machine GitHub.
         a, b = teaser
-        pre = (f"[0:v]split[va][vb];[va]trim={a:.3f}:{b:.3f},setpts=PTS-STARTPTS,fps=30[t0];"
-               f"[vb]select='{sel}',setpts=N/FRAME_RATE/TB,fps=30[m0];[t0][m0]concat=n=2:v=1:a=0[v0];"
-               f"[0:a]asplit[aa][ab];[aa]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS[ta];"
-               f"[ab]aselect='{sel}',asetpts=N/SR/TB[ma];[ta][ma]concat=n=2:v=0:a=1[a];")
+        inputs += ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", src]
+        pre = (f"[1:v]setpts=PTS-STARTPTS,fps=30[t0];"
+               f"[0:v]select='{sel}',setpts=N/FRAME_RATE/TB,fps=30[m0];[t0][m0]concat=n=2:v=1:a=0[v0];"
+               f"[1:a]asetpts=PTS-STARTPTS[ta];"
+               f"[0:a]aselect='{sel}',asetpts=N/SR/TB[ma];[ta][ma]concat=n=2:v=0:a=1[a0];")
     else:
         pre = (f"[0:v]select='{sel}',setpts=N/FRAME_RATE/TB,fps=30[v0];"
-               f"[0:a]aselect='{sel}',asetpts=N/SR/TB[a];")
+               f"[0:a]aselect='{sel}',asetpts=N/SR/TB[a0];")
+    # Volume au niveau TikTok (-14 LUFS) : les streams sont souvent trop bas ou saturés.
+    pre += "[a0]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a];"
+    sat = inputs.count("-i")  # index de la vidéo satisfaisante si on l'ajoute
+
+    def punch(h):
+        if not zooms:
+            return ""
+        on = "+".join(f"between(in_time,{a:.2f},{b:.2f})" for a, b in zooms)
+        return (f",zoompan=z='if({on},1.18,1)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2'"
+                f":d=1:s={W}x{h}:fps=30")
     if cam:
         x, y, w, h = cam
         game_h = H - CAM_H
         layout = (f"[v0]split[c][g];"
                   f"[c]crop=iw*{w:.4f}:ih*{h:.4f}:iw*{x:.4f}:ih*{y:.4f},"
                   f"scale={W}:{CAM_H}:force_original_aspect_ratio=increase,crop={W}:{CAM_H}[cam];"
-                  f"[g]crop=ih*{W}/{game_h}:ih,scale={W}:{game_h}[game];"
+                  f"[g]crop=ih*{W}/{game_h}:ih,scale={W}:{game_h}{punch(game_h)}[game];"
                   f"[cam][game]vstack[v1];")
     elif filler:
         game_h = H - SAT_H
-        layout = (f"[v0]scale=-2:{game_h},crop={W}:{game_h}[game];"
-                  f"[1:v]scale={W}:{SAT_H}:force_original_aspect_ratio=increase,crop={W}:{SAT_H},fps=30,setsar=1[sat];"
-                  f"[game][sat]vstack=shortest=1[v1];")
+        layout = (f"[v0]scale=-2:{game_h},crop={W}:{game_h}{punch(game_h)}[game];"
+                  f"[{sat}:v]scale={W}:{SAT_H}:force_original_aspect_ratio=increase,crop={W}:{SAT_H},fps=30,setsar=1[s];"
+                  f"[game][s]vstack=shortest=1[v1];")
     else:
         layout = (f"[v0]split[b][f];"
                   f"[b]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20[bg];"
-                  f"[f]scale={W}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v1];")
+                  f"[f]scale={W}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2{punch(H)}[v1];")
     # Nom de fichier seul + cwd : un chemin complet casse le filtre ass (":" sous Windows, espaces...)
     fonts = MODELS / "fonts"  # police fournie par le workflow (pas de paquet système)
     extra = f":fontsdir='{fonts.as_posix()}'" if fonts.is_dir() else ""
     graph = pre + layout + f"[v1]setsar=1,ass='{Path(ass_path).name}'{extra}[v]"
-    # Boucle + départ au hasard : la même vidéo ne commence pas toujours pareil (toutes durent ≥ 15 s)
-    fill = ["-stream_loop", "-1", "-ss", f"{random.uniform(0, 10):.1f}", "-i", str(Path(filler).resolve())] if filler and not cam else []
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(Path(src).resolve()), *fill, "-filter_complex", graph,
-                    "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+    if filler and not cam:  # boucle + départ au hasard : la même vidéo ne commence pas toujours pareil
+        inputs += ["-stream_loop", "-1", "-ss", f"{random.uniform(0, 10):.1f}", "-i", str(Path(filler).resolve())]
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *inputs, "-filter_complex", graph,
+                    "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-shortest",
                     str(Path(dst).resolve())], check=True, timeout=1800, cwd=Path(ass_path).resolve().parent)
     return dst

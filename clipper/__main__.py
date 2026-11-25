@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from . import buffer, edit, text, twitch
-from .core import DATA, ROOT, active_streamers, db, env, get_state, load_config, notify, set_state
+from .core import DATA, ROOT, active_streamers, checkpoint, db, env, get_state, load_config, notify, set_state
 
 
 def run(cfg, con):
@@ -33,7 +33,13 @@ def run(cfg, con):
 
 def process(cfg, con, streamers):
     rules = cfg["rules"]
-    rows = con.execute("SELECT * FROM clips WHERE status='new' ORDER BY score DESC").fetchall()
+    crashed = [r["id"] for r in con.execute("SELECT id FROM clips WHERE status='processing'")]
+    if crashed:  # la machine est morte pendant ce montage au passage précédent : on ne le retente pas
+        con.execute("UPDATE clips SET status='failed', error='a fait planter le passage' WHERE status='processing'")
+        notify(f"⚠️ Clip(s) écarté(s), ils faisaient planter le montage : {', '.join(crashed)}")
+    oldest = (datetime.now(timezone.utc) - timedelta(hours=cfg["publish"]["max_clip_age_hours"])).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = con.execute("SELECT * FROM clips WHERE status='new' AND created_at>=? ORDER BY score DESC",
+                       (oldest,)).fetchall()
     budget = cfg["fetch"]["process_per_run"]  # compté sur les clips vraiment traités : un stock EN plein ne bloque pas le FR
     for row in rows:
         clip = dict(row)
@@ -44,7 +50,12 @@ def process(cfg, con, streamers):
         ready = con.execute("SELECT COUNT(*) FROM clips WHERE status='ready' AND lang=?", (clip["lang"],)).fetchone()[0]
         if ready >= cfg["fetch"]["max_ready_per_lang"]:
             continue  # stock suffisant : on garde l'hébergement léger et les clips frais
+        if same_moment(con, clip):
+            set_status(con, clip["id"], "skipped", error="même moment qu'un clip déjà monté")
+            continue
         budget -= 1
+        set_status(con, clip["id"], "processing")
+        checkpoint(con)
         raw = DATA / "raw" / f"{clip['id']}.mp4"
         try:
             edit.download(clip, rules, raw)
@@ -55,7 +66,8 @@ def process(cfg, con, streamers):
             if total < rules["min_seconds"]:
                 set_status(con, clip["id"], "skipped", error=f"trop court après coupe ({total:.0f}s)")
                 continue
-            meta = text.generate(clip, " ".join(w for _, _, w in words), clip["lang"], cfg["models"]["ollama"])
+            meta = text.generate(clip, " ".join(w for _, _, w in words), clip["lang"], cfg["models"]["ollama"],
+                                 recent_titles(con, clip["lang"]))
             try:
                 mine = edit.streamer_words(audio, words)
             except Exception as e:  # séparation des voix ratée : tout en gros, comme avant
@@ -63,19 +75,22 @@ def process(cfg, con, streamers):
                 mine = [True] * len(words)
             peak = edit.peak_time(edit.rms(audio), 0.1, iv)
             teaser = (max(0.0, peak - 0.3), peak + 1.2) if peak is not None else None
+            energy = edit.rms(audio)
             lead = teaser[1] - teaser[0] if teaser else 0.0  # tout le clip est décalé d'autant
             moved = [(edit.remap(s, iv), edit.remap(e, iv), w, m) for (s, e, w), m in zip(words, mine)]
             moved = [(s + lead, e + lead, w, m) for s, e, w, m in moved if s is not None and e is not None]
             total += lead
+            hits = [edit.remap(t, iv) for t in edit.punch_times(energy, 0.1, iv)]
+            zooms = ([(0.0, lead)] if lead else []) + [(t + lead - 0.15, t + lead + 1.0) for t in hits if t is not None]
             fc = streamers.get(clip["login"], {}).get("facecam", "auto")
             cam = None if fc == "none" else fc if isinstance(fc, list) else edit.detect_facecam(raw)
             out = DATA / "out" / f"{secrets.token_urlsafe(12)}.mp4"  # nom imprévisible : URL publique
             out.parent.mkdir(parents=True, exist_ok=True)
             ass = raw.with_suffix(".ass")
-            ass.write_text(edit.build_ass(moved, meta["hook"], f"twitch.tv/{clip['login']}", total, cfg["style"], lead),
-                           encoding="utf-8")
+            ass.write_text(edit.build_ass(moved, meta["hook"], f"twitch.tv/{clip['login']}", total, cfg["style"],
+                                          lead, meta.pop("rewind")), encoding="utf-8")
             sat = sorted((ROOT / "assets" / "satisfying").glob("*.mp4"))
-            edit.render(raw, out, iv, ass, cam, random.choice(sat) if sat else None, teaser)
+            edit.render(raw, out, iv, ass, cam, random.choice(sat) if sat else None, teaser, zooms)
             meta["seconds"] = round(total, 1)
             set_status(con, clip["id"], "ready", path=out.name, meta=json.dumps(meta, ensure_ascii=False))
         except Exception as e:  # un clip raté ne doit pas bloquer les autres
@@ -84,6 +99,22 @@ def process(cfg, con, streamers):
         finally:
             for p in (raw, raw.with_suffix(".ass")):
                 p.unlink(missing_ok=True)
+
+
+def same_moment(con, clip, window=45):
+    """Plusieurs viewers clippent souvent la même scène : un seul clip par moment de VOD."""
+    if not clip["video_id"] or clip["vod_offset"] is None:
+        return False
+    return con.execute("SELECT 1 FROM clips WHERE id!=? AND video_id=? AND ABS(vod_offset-?)<? "
+                       "AND status IN ('processing','ready','posted')",
+                       (clip["id"], clip["video_id"], clip["vod_offset"], window)).fetchone() is not None
+
+
+def recent_titles(con, lang, n=12):
+    rows = con.execute("SELECT json_extract(meta,'$.title') FROM clips WHERE lang=? AND meta IS NOT NULL "
+                       "AND status IN ('ready','posted') ORDER BY COALESCE(posted_at, created_at) DESC LIMIT ?",
+                       (lang, n)).fetchall()
+    return [r[0] for r in rows if r[0]]
 
 
 def limit(intervals, max_s):
@@ -158,8 +189,16 @@ def publish(cfg, con):
         if con.execute("SELECT COUNT(DISTINCT slot) FROM posts WHERE slot LIKE ?", (day,)).fetchone()[0] >= pub["max_per_day"]:
             continue
         oldest = (datetime.now(timezone.utc) - timedelta(hours=pub["max_clip_age_hours"])).strftime("%Y-%m-%dT%H:%M:%SZ")
-        row = con.execute("SELECT * FROM clips WHERE status='ready' AND lang=? AND created_at>=? "
-                          "ORDER BY score DESC LIMIT 1", (lang, oldest)).fetchone()
+        row = None
+        for cand in con.execute("SELECT * FROM clips WHERE status='ready' AND lang=? AND created_at>=? "
+                                "ORDER BY score DESC", (lang, oldest)).fetchall():
+            title = json.loads(cand["meta"])["title"]
+            if con.execute("SELECT 1 FROM clips WHERE status='posted' AND lang=? AND json_extract(meta,'$.title')=?",
+                           (lang, title)).fetchone():
+                set_status(con, cand["id"], "skipped", error="titre déjà publié")
+                continue
+            row = cand
+            break
         if not row:
             notify(f"ℹ️ Créneau {slot} ({lang}) : aucun clip prêt.")
             continue
@@ -248,7 +287,9 @@ def poll_commands(cfg, con):
 
 def tick(cfg, con):
     """Un passage horaire complet. Chaque étape est isolée : une panne n'empêche pas les autres."""
-    steps = [("commandes", poll_commands), ("publication", publish), ("récupération", run)]
+    # Sauvegarde juste après la publication : si le montage fait tomber la machine, rien n'est republié.
+    steps = [("commandes", poll_commands), ("publication", publish),
+             ("sauvegarde", lambda cfg, con: checkpoint(con)), ("récupération", run)]
     now = datetime.now(ZoneInfo(cfg["timezone"]))
     if now.hour == 23 and get_state(con, "recap_day") != f"{now:%Y-%m-%d}":
         set_state(con, "recap_day", f"{now:%Y-%m-%d}")
