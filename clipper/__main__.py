@@ -189,7 +189,7 @@ def publish(cfg, con):
     pub = cfg["publish"]
     now = datetime.now(ZoneInfo(cfg["timezone"]))
     for row in con.execute("SELECT * FROM clips WHERE status='ready' AND vip=1 AND path IS NOT NULL").fetchall():
-        if os.environ.get(f"CLIPPER_BUFFER_KEY_{row['lang'].upper()}"):  # invité : publié tout de suite, en plus
+        if os.environ.get(f"CLIPPER_BUFFER_KEY_{row['lang'].upper()}") and online(row):  # invité : publié tout de suite, en plus
             post_clip(cfg, con, row, row["lang"], f"vip:{row['lang']}:{now:%Y-%m-%d %H:%M}:{row['id']}", now)
     for lang, slots in pub["slots"].items():
         slot = due_slot(now, slots, pub["window_minutes"])
@@ -204,6 +204,8 @@ def publish(cfg, con):
         row = None
         for cand in con.execute("SELECT * FROM clips WHERE status='ready' AND lang=? AND created_at>=? "
                                 "ORDER BY vip DESC, score * COALESCE(bonus, 1) DESC", (lang, oldest)).fetchall():
+            if not online(cand):
+                continue  # vidéo pas encore sur GitHub Pages : Buffer recevrait un lien mort
             title = json.loads(cand["meta"])["title"]
             if con.execute("SELECT 1 FROM clips WHERE status='posted' AND lang=? AND json_extract(meta,'$.title')=?",
                            (lang, title)).fetchone():
@@ -215,6 +217,14 @@ def publish(cfg, con):
             notify(f"ℹ️ Créneau {slot} ({lang}) : aucun clip prêt.")
             continue
         post_clip(cfg, con, row, lang, key, now)
+
+
+def online(row):
+    """Vrai si la vidéo répond sur GitHub Pages (la mise en ligne échoue parfois, 25/11)."""
+    try:
+        return requests.head(f"{env('PUBLIC_BASE_URL').rstrip('/')}/{row['path']}", timeout=20).status_code == 200
+    except requests.RequestException:
+        return False
 
 
 def post_clip(cfg, con, row, lang, slot_key, now):
@@ -257,6 +267,14 @@ def test(cfg, con):
     n = con.execute("SELECT COUNT(*) FROM clips WHERE status='ready' AND lang=?", (lang,)).fetchone()[0]
     notify(f"🧪 Test : {n} clip(s) {lang} préparé(s). Relance le test dans 2 min pour publier."
            if n else f"🧪 Test : aucun clip {lang} exploitable trouvé sur 7 jours.")
+
+
+def check(cfg, con):
+    """Test rapide des titres (Claude si ANTHROPIC_API_KEY, sinon Ollama) : python -m clipper check"""
+    print("Claude" if text.uses_claude() else "Ollama", "->", text.generate(
+        {"login": "squeezie", "name": "Squeezie", "title": "la porte"},
+        "attends attends on ouvre la porte et là il y a trois policiers qui nous attendent", "fr",
+        cfg["models"]["ollama"]), flush=True)
 
 
 def recap(cfg, con):
@@ -356,9 +374,9 @@ def main():
                 print(lang, c["service"], c["id"], c["name"])
         return
     fn = {"tick": tick, "test": test, "run": run, "publish": publish, "recap": recap, "redo": redo,
-          "learn": learn.learn}.get(cmd)
+          "learn": learn.learn, "check": check}.get(cmd)
     if not fn:
-        sys.exit("usage : python -m clipper tick|test|run|publish|recap|channels|redo|learn")
+        sys.exit("usage : python -m clipper tick|test|run|publish|recap|channels|redo|learn|check")
     con = db()
     try:
         fn(cfg, con)

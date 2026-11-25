@@ -250,6 +250,7 @@ def test_invite_publie_hors_creneau(tmp_path, monkeypatch):
         ("autre", "fr", "ready", "b.mp4", 0, '{"title": "U"}', "2999-01-01T00:00:00Z")])
     posted = []
     monkeypatch.setattr(m, "post_clip", lambda cfg, con, row, lang, slot, now: posted.append((row["id"], slot)))
+    monkeypatch.setattr(m, "online", lambda row: True)
     cfg = {"timezone": "Europe/Paris", "publish": {"slots": {"fr": []}, "window_minutes": 90,
                                                    "max_per_day": 6, "max_clip_age_hours": 24}}
     m.publish(cfg, con)

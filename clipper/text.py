@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import sys
 
 import requests
 
@@ -108,7 +109,8 @@ def generate(clip, transcript, lang, model, recent=()):
             data = _ask(model, prompt, temperature)
             if lang == "fr" and data.get("title") and not uses_claude():  # qwen fait des fautes, pas Claude
                 data["title"] = _ask(model, FIX_FR.format(title=data["title"]), 0.1).get("title") or data["title"]
-        except (requests.RequestException, ValueError, KeyError):
+        except (requests.RequestException, ValueError, KeyError) as e:
+            print(f"titre : {e}", file=sys.stderr)  # visible dans le journal GitHub
             data = {}
         if not bad_title(str(data.get("title") or ""), recent, name=name):
             break

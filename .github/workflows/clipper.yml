@@ -9,7 +9,7 @@ on:
   workflow_dispatch:       # bouton "Run workflow" pour lancer à la main
     inputs:
       command:
-        description: "tick (normal), test (publie un clip tout de suite), run (montage seul), redo (remonte les clips prêts), learn (bilan TikTok), channels"
+        description: "tick (normal), test (publie un clip tout de suite), run (montage seul), redo (remonte les clips prêts), learn (bilan TikTok), check (test des titres), channels"
         default: tick
 
 permissions:
@@ -98,10 +98,20 @@ jobs:
             || git -c user.name=clipper -c user.email=clipper@users.noreply.github.com commit -q -m state
           git push -q -f origin HEAD:data
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: always()
         with:
           path: data/out
 
-      - uses: actions/deploy-pages@v4
+      # GitHub ne trouve pas toujours l'archive tout de suite (« Found 0 artifact(s) », 25/11) : 2e essai 30 s après.
+      - uses: actions/deploy-pages@v5
+        id: deploy
         if: always()
+        continue-on-error: true
+
+      - name: Attendre avant le 2e essai
+        if: always() && steps.deploy.outcome == 'failure'
+        run: sleep 30
+
+      - uses: actions/deploy-pages@v5
+        if: always() && steps.deploy.outcome == 'failure'
